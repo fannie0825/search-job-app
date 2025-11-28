@@ -3,8 +3,10 @@
  * Handles all API calls to backend services
  */
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
-const USE_MOCK_API = process.env.REACT_APP_USE_MOCK_API === 'true' || !process.env.REACT_APP_API_URL;
+import config from '../config/api.config';
+
+const API_BASE_URL = config.apiUrl;
+const USE_MOCK_API = config.useMockApi;
 
 // Import mock API for development
 let mockApiService = null;
@@ -29,8 +31,14 @@ class ApiService {
     const formData = new FormData();
     formData.append('resume', file);
 
+    const headers = {};
+    if (config.apiKeys.backend.apiKey) {
+      headers['X-API-Key'] = config.apiKeys.backend.apiKey;
+    }
+
     const response = await fetch(`${API_BASE_URL}/resume/upload`, {
       method: 'POST',
+      headers,
       body: formData,
     });
 
@@ -48,8 +56,16 @@ class ApiService {
     if (this._useMock()) {
       return mockApiService.extractProfile(resumeId);
     }
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+    if (config.apiKeys.backend.apiKey) {
+      headers['X-API-Key'] = config.apiKeys.backend.apiKey;
+    }
+
     const response = await fetch(`${API_BASE_URL}/resume/${resumeId}/extract`, {
       method: 'POST',
+      headers,
     });
 
     if (!response.ok) {
@@ -66,11 +82,16 @@ class ApiService {
     if (this._useMock()) {
       return mockApiService.analyzeProfile(profileData, filters);
     }
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+    if (config.apiKeys.backend.apiKey) {
+      headers['X-API-Key'] = config.apiKeys.backend.apiKey;
+    }
+
     const response = await fetch(`${API_BASE_URL}/analyze`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         profile: profileData,
         filters: filters,
@@ -91,11 +112,16 @@ class ApiService {
     if (this._useMock()) {
       return mockApiService.getJobMatches(profileData, filters);
     }
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+    if (config.apiKeys.backend.apiKey) {
+      headers['X-API-Key'] = config.apiKeys.backend.apiKey;
+    }
+
     const response = await fetch(`${API_BASE_URL}/jobs/matches`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         profile: profileData,
         filters: filters,
@@ -117,11 +143,16 @@ class ApiService {
     if (this._useMock()) {
       return mockApiService.generateTailoredResume(profileData, jobId);
     }
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+    if (config.apiKeys.backend.apiKey) {
+      headers['X-API-Key'] = config.apiKeys.backend.apiKey;
+    }
+
     const response = await fetch(`${API_BASE_URL}/resume/tailor`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         profile: profileData,
         job_id: jobId,
@@ -142,11 +173,16 @@ class ApiService {
     if (this._useMock()) {
       return mockApiService.getMarketPositioning(profileData, filters);
     }
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+    if (config.apiKeys.backend.apiKey) {
+      headers['X-API-Key'] = config.apiKeys.backend.apiKey;
+    }
+
     const response = await fetch(`${API_BASE_URL}/market/positioning`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         profile: profileData,
         filters: filters,
