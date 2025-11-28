@@ -688,6 +688,9 @@ def display_resume_generator():
             
             if resume:
                 st.session_state.generated_resume = resume
+                # Clear the widget state to prevent stale cached values
+                if "resume_editor" in st.session_state:
+                    del st.session_state.resume_editor
                 st.success("✅ Resume generated successfully!")
                 st.balloons()
     
@@ -704,7 +707,8 @@ def display_resume_generator():
             key="resume_editor"
         )
         
-        # Update if edited
+        # Update if edited (only if the edited value is actually different from current)
+        # This prevents overwriting with stale cached values
         if edited_resume != st.session_state.generated_resume:
             st.session_state.generated_resume = edited_resume
         
