@@ -843,6 +843,154 @@ Return format: {{"keywords": ["keyword1", "keyword2", "keyword3", ...]}}"""
         except Exception as e:
             st.warning(f"Could not calculate match score: {e}")
             return None, None
+    
+    def analyze_seniority_level(self, job_titles):
+        """Analyze job titles to determine seniority level"""
+        if not job_titles:
+            return "Mid-Senior Level"
+        
+        titles_text = "\n".join([f"- {title}" for title in job_titles[:10]])
+        prompt = f"""Analyze these job titles and determine the most common seniority level.
+        
+Job Titles:
+{titles_text}
+
+Return ONLY a JSON object with this structure:
+{{
+    "seniority": "Entry Level" | "Mid Level" | "Mid-Senior Level" | "Senior Level" | "Executive Level",
+    "confidence": "high" | "medium" | "low"
+}}
+
+Choose the most appropriate seniority level based on the job titles."""
+        
+        try:
+            payload = {
+                "messages": [
+                    {"role": "system", "content": "You are a career analyst. Analyze job titles and return only JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": 200,
+                "temperature": 0.3,
+                "response_format": {"type": "json_object"}
+            }
+            
+            response = requests.post(self.url, headers=self.headers, json=payload, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                content = result['choices'][0]['message']['content']
+                data = json.loads(content)
+                return data.get('seniority', 'Mid-Senior Level')
+        except:
+            pass
+        
+        # Fallback: simple keyword matching
+        all_titles = " ".join(job_titles).lower()
+        if any(word in all_titles for word in ['executive', 'director', 'vp', 'vice president', 'head of']):
+            return "Executive Level"
+        elif any(word in all_titles for word in ['senior', 'sr.', 'lead', 'principal']):
+            return "Senior Level"
+        elif any(word in all_titles for word in ['junior', 'jr.', 'entry', 'associate', 'graduate']):
+            return "Entry Level"
+        else:
+            return "Mid-Senior Level"
+    
+    def recommend_accreditations(self, job_descriptions, user_skills):
+        """Recommend accreditations based on job requirements"""
+        if not job_descriptions:
+            return "PMP or Scrum Master"
+        
+        # Combine job descriptions (limit to avoid token limits)
+        combined_desc = "\n\n".join([desc[:1000] for desc in job_descriptions[:5]])
+        user_skills_str = user_skills if user_skills else "Not specified"
+        
+        prompt = f"""Analyze these job descriptions and recommend the most valuable professional accreditation or certification for Hong Kong market.
+
+Job Descriptions:
+{combined_desc}
+
+User's Current Skills: {user_skills_str}
+
+Return ONLY a JSON object:
+{{
+    "accreditation": "Name of certification (e.g., PMP, HKICPA, AWS Certified)",
+    "reason": "Brief reason why this certification is valuable"
+}}
+
+Focus on certifications that are:
+1. Highly valued in Hong Kong market
+2. Frequently mentioned in these job descriptions
+3. Would unlock more opportunities for the user"""
+        
+        try:
+            payload = {
+                "messages": [
+                    {"role": "system", "content": "You are a career advisor specializing in Hong Kong market. Return only JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": 300,
+                "temperature": 0.5,
+                "response_format": {"type": "json_object"}
+            }
+            
+            response = requests.post(self.url, headers=self.headers, json=payload, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                content = result['choices'][0]['message']['content']
+                data = json.loads(content)
+                return data.get('accreditation', 'PMP or Scrum Master')
+        except:
+            pass
+        
+        return "PMP or Scrum Master"
+    
+    def generate_recruiter_note(self, job, user_profile, semantic_score, skill_score):
+        """Generate a personalized recruiter note"""
+        job_title = job.get('title', '')
+        job_desc = job.get('description', '')[:2000]  # Limit length
+        user_summary = user_profile.get('summary', '')[:500]
+        user_experience = user_profile.get('experience', '')[:500]
+        
+        prompt = f"""You are a professional recruiter in Hong Kong. Write a brief, actionable note about why this candidate is a good fit for this role.
+
+Job Title: {job_title}
+Job Description (excerpt): {job_desc}
+
+Candidate Summary: {user_summary}
+Candidate Experience (excerpt): {user_experience}
+
+Match Scores:
+- Semantic Match: {semantic_score:.0%}
+- Skill Match: {skill_score:.0%}
+
+Write a 2-3 sentence recruiter note that:
+1. Highlights the strongest match points
+2. Mentions any specific experience or skills that align well
+3. Provides actionable feedback
+
+Return ONLY the recruiter note text, no labels or formatting."""
+        
+        try:
+            payload = {
+                "messages": [
+                    {"role": "system", "content": "You are a professional recruiter. Write concise, actionable notes."},
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": 200,
+                "temperature": 0.7
+            }
+            
+            response = requests.post(self.url, headers=self.headers, json=payload, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                return result['choices'][0]['message']['content'].strip()
+        except:
+            pass
+        
+        # Fallback note
+        if semantic_score >= 0.7:
+            return f"This role heavily emphasizes recent experience in {job.get('skills', ['relevant skills'])[0] if job.get('skills') else 'relevant skills'}, which is a strong point in your profile."
+        else:
+            return "Consider highlighting more relevant experience from your background to strengthen your application."
 
 class IndeedScraperAPI:
     def __init__(self, api_key):
@@ -1011,6 +1159,128 @@ def get_text_generator():
         AZURE_OPENAI_ENDPOINT = st.secrets["AZURE_OPENAI_ENDPOINT"]
         st.session_state.text_gen = AzureOpenAITextGenerator(AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT)
     return st.session_state.text_gen
+
+def extract_salary_from_text(text):
+    """Extract salary information from job description text"""
+    if not text:
+        return None, None
+    
+    # Look for common salary patterns in HKD
+    import re
+    patterns = [
+        r'HKD\s*\$?\s*(\d{1,3}(?:,\d{3})*(?:k|K)?)\s*[-–—]\s*\$?\s*(\d{1,3}(?:,\d{3})*(?:k|K)?)',
+        r'(\d{1,3}(?:,\d{3})*(?:k|K)?)\s*[-–—]\s*(\d{1,3}(?:,\d{3})*(?:k|K)?)\s*HKD',
+        r'HKD\s*\$?\s*(\d{1,3}(?:,\d{3})*(?:k|K)?)\s*(?:per month|/month|/mth|monthly)',
+        r'(\d{1,3}(?:,\d{3})*(?:k|K)?)\s*HKD\s*(?:per month|/month|/mth|monthly)',
+    ]
+    
+    for pattern in patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        if matches:
+            match = matches[0]
+            if isinstance(match, tuple) and len(match) == 2:
+                min_sal = match[0].replace(',', '').replace('k', '000').replace('K', '000')
+                max_sal = match[1].replace(',', '').replace('k', '000').replace('K', '000')
+                try:
+                    min_val = int(min_sal)
+                    max_val = int(max_sal)
+                    return min_val, max_val
+                except:
+                    pass
+            elif isinstance(match, tuple) and len(match) == 1:
+                sal = match[0].replace(',', '').replace('k', '000').replace('K', '000')
+                try:
+                    sal_val = int(sal)
+                    return sal_val, sal_val * 1.2  # Estimate range
+                except:
+                    pass
+    
+    return None, None
+
+def calculate_salary_band(matched_jobs):
+    """Calculate estimated salary band from matched jobs"""
+    salaries = []
+    
+    for result in matched_jobs:
+        job = result['job']
+        # Try to extract from salary field
+        salary_str = job.get('salary', '')
+        if salary_str and salary_str != 'Not specified':
+            min_sal, max_sal = extract_salary_from_text(salary_str)
+            if min_sal and max_sal:
+                salaries.append((min_sal, max_sal))
+        
+        # Try to extract from description
+        description = job.get('description', '')
+        if description:
+            min_sal, max_sal = extract_salary_from_text(description[:5000])  # Check first 5000 chars
+            if min_sal and max_sal:
+                salaries.append((min_sal, max_sal))
+    
+    if not salaries:
+        # Default estimate based on Hong Kong market
+        return 45000, 55000
+    
+    # Calculate average min and max
+    avg_min = int(np.mean([s[0] for s in salaries]))
+    avg_max = int(np.mean([s[1] for s in salaries]))
+    
+    return avg_min, avg_max
+
+def filter_jobs_by_domains(jobs, target_domains):
+    """Filter jobs by target domains"""
+    if not target_domains:
+        return jobs
+    
+    filtered = []
+    domain_keywords = {
+        'FinTech': ['fintech', 'financial technology', 'blockchain', 'crypto', 'payment', 'banking technology'],
+        'ESG & Sustainability': ['esg', 'sustainability', 'environmental', 'green', 'carbon', 'climate'],
+        'Data Analytics': ['data analytics', 'data analysis', 'business intelligence', 'bi', 'data science'],
+        'Digital Transformation': ['digital transformation', 'digitalization', 'digital strategy', 'innovation'],
+        'Investment Banking': ['investment banking', 'ib', 'm&a', 'mergers', 'acquisitions', 'capital markets'],
+        'Consulting': ['consulting', 'consultant', 'advisory', 'strategy consulting'],
+        'Technology': ['software', 'technology', 'tech', 'engineering', 'developer', 'programming'],
+        'Healthcare': ['healthcare', 'medical', 'health', 'hospital', 'clinical'],
+        'Education': ['education', 'teaching', 'academic', 'university', 'school']
+    }
+    
+    for job in jobs:
+        title_lower = job.get('title', '').lower()
+        desc_lower = job.get('description', '').lower()[:2000]  # Check first 2000 chars
+        combined = f"{title_lower} {desc_lower}"
+        
+        for domain in target_domains:
+            keywords = domain_keywords.get(domain, [domain.lower()])
+            if any(keyword.lower() in combined for keyword in keywords):
+                filtered.append(job)
+                break
+    
+    return filtered if filtered else jobs  # Return all if no matches
+
+def filter_jobs_by_salary(jobs, min_salary):
+    """Filter jobs by minimum salary expectation"""
+    if not min_salary or min_salary <= 0:
+        return jobs
+    
+    filtered = []
+    for job in jobs:
+        salary_str = job.get('salary', '')
+        description = job.get('description', '')
+        
+        # Try to extract salary
+        min_sal, max_sal = extract_salary_from_text(salary_str)
+        if not min_sal:
+            min_sal, max_sal = extract_salary_from_text(description[:5000])
+        
+        # If we found a salary and it meets the minimum, include it
+        # If no salary found, include it (can't filter what we don't know)
+        if min_sal and min_sal >= min_salary:
+            filtered.append(job)
+        elif not min_sal:
+            filtered.append(job)  # Include jobs without salary info
+    
+    return filtered
 
 def display_job_card(result, index):
     job = result['job']
@@ -1849,9 +2119,22 @@ def render_sidebar():
                 scraper = get_job_scraper()
                 
                 with st.spinner("🔄 Fetching jobs and analyzing..."):
-                    jobs = scraper.search_jobs(search_query, "Hong Kong", 15, "fulltime", "hk")
+                    # Fetch more jobs initially to allow for filtering
+                    jobs = scraper.search_jobs(search_query, "Hong Kong", 25, "fulltime", "hk")
                     
                     if jobs:
+                        # Apply domain filters
+                        if target_domains:
+                            jobs = filter_jobs_by_domains(jobs, target_domains)
+                        
+                        # Apply salary filter
+                        if salary_expectation > 0:
+                            jobs = filter_jobs_by_salary(jobs, salary_expectation)
+                        
+                        if not jobs:
+                            st.warning("⚠️ No jobs match your filters. Try adjusting your criteria.")
+                            return
+                        
                         st.session_state.jobs_cache = {
                             'jobs': jobs,
                             'count': len(jobs),
@@ -1903,14 +2186,26 @@ def display_market_positioning_profile(matched_jobs, user_profile):
     
     # Calculate metrics
     # Metric 1: Estimated Market Salary Band
-    # Simulate salary calculation based on matched jobs
-    salary_min = 45000
-    salary_max = 55000
+    salary_min, salary_max = calculate_salary_band(matched_jobs)
+    
+    # Calculate salary delta (compare with user's expectation if available)
+    user_salary_expectation = st.session_state.get('salary_expectation', 0)
+    if user_salary_expectation > 0:
+        avg_salary = (salary_min + salary_max) / 2
+        salary_delta_pct = ((avg_salary - user_salary_expectation) / user_salary_expectation * 100) if user_salary_expectation > 0 else 0
+        if salary_delta_pct > 0:
+            salary_delta = f"+{salary_delta_pct:.0f}% vs expectation"
+        elif salary_delta_pct < 0:
+            salary_delta = f"{salary_delta_pct:.0f}% vs expectation"
+        else:
+            salary_delta = "Matches expectation"
+    else:
+        salary_delta = "Market rate"
     
     # Metric 2: Target Role Seniority
-    # Analyze job titles to determine seniority level
-    job_titles = [r['job'].get('title', '') for r in matched_jobs[:5]]
-    seniority = "Mid-Senior Level"  # Default, could be enhanced with AI analysis
+    job_titles = [r['job'].get('title', '') for r in matched_jobs[:10] if r['job'].get('title')]
+    text_gen = get_text_generator()
+    seniority = text_gen.analyze_seniority_level(job_titles)
     
     # Metric 3: Top Skill Gap
     user_skills = user_profile.get('skills', '')
@@ -1933,7 +2228,8 @@ def display_market_positioning_profile(matched_jobs, user_profile):
     top_skill_gap = max(skill_counts.items(), key=lambda x: x[1])[0] if skill_counts else "Cloud Infrastructure (AWS)"
     
     # Metric 4: Recommended Accreditation
-    recommended_accreditation = "PMP or Scrum Master"  # Default, could be enhanced with AI analysis
+    job_descriptions = [r['job'].get('description', '') for r in matched_jobs[:5]]
+    recommended_accreditation = text_gen.recommend_accreditations(job_descriptions, user_skills)
     
     # Display 4 metrics in columns
     col1, col2, col3, col4 = st.columns(4)
@@ -1942,8 +2238,8 @@ def display_market_positioning_profile(matched_jobs, user_profile):
         st.metric(
             label="Est. Market Salary Band",
             value=f"HKD {salary_min//1000}k - {salary_max//1000}k / mth",
-            delta="+5% vs current",
-            delta_color="normal"
+            delta=salary_delta,
+            delta_color="normal" if "vs expectation" in salary_delta and "+" in salary_delta else "off"
         )
     
     with col2:
@@ -1957,7 +2253,7 @@ def display_market_positioning_profile(matched_jobs, user_profile):
     with col3:
         st.metric(
             label="Top Skill Gap",
-            value=top_skill_gap,
+            value=top_skill_gap[:30] + "..." if len(top_skill_gap) > 30 else top_skill_gap,
             delta="High Demand in HK",
             delta_color="inverse"
         )
@@ -1965,7 +2261,7 @@ def display_market_positioning_profile(matched_jobs, user_profile):
     with col4:
         st.metric(
             label="Recommended Accreditation",
-            value=recommended_accreditation,
+            value=recommended_accreditation[:30] + "..." if len(recommended_accreditation) > 30 else recommended_accreditation,
             delta="Unlock 15% more roles",
             delta_color="off"
         )
@@ -2120,6 +2416,10 @@ def display_match_breakdown(matched_jobs, user_profile):
     total_required = len(job_skills_list) if job_skills_list else 1
     skill_overlap_pct = (matched_skills_count / total_required * 100) if total_required > 0 else 0
     
+    # Generate AI recruiter note
+    text_gen = get_text_generator()
+    recruiter_note = text_gen.generate_recruiter_note(job, user_profile, semantic_score, skill_score)
+    
     # Expander title
     expander_title = f"Deep Dive: {job['title']} at {job['company']}"
     
@@ -2138,12 +2438,7 @@ def display_match_breakdown(matched_jobs, user_profile):
             You have {matched_skills_count}/{total_required} required core skills.
             """)
             
-            # Recruiter Note
-            if semantic_score >= 0.7:
-                recruiter_note = f"This role heavily emphasizes recent experience in {job.get('skills', ['relevant skills'])[0] if job.get('skills') else 'relevant skills'}, which is a strong point in your profile."
-            else:
-                recruiter_note = "Consider highlighting more relevant experience from your background to strengthen your application."
-            
+            # Recruiter Note (AI-generated)
             st.info(f"**Recruiter Note:** {recruiter_note}")
         
         with col2:
@@ -2153,7 +2448,7 @@ def display_match_breakdown(matched_jobs, user_profile):
             if missing_skills:
                 top_missing = missing_skills[0]
                 # Check if it's a certification-related skill
-                cert_keywords = ['certification', 'certified', 'accreditation', 'license', 'pmp', 'scrum', 'hkicpa', 'cpa']
+                cert_keywords = ['certification', 'certified', 'accreditation', 'license', 'pmp', 'scrum', 'hkicpa', 'cpa', 'cfa', 'cpa', 'aws', 'azure', 'gcp']
                 is_cert = any(kw in top_missing.lower() for kw in cert_keywords)
                 
                 if is_cert:
@@ -2168,6 +2463,12 @@ def display_match_breakdown(matched_jobs, user_profile):
                 st.rerun()
             
             st.caption("Generates a citation-locked, AI-optimized CV emphasizing your matching skills.")
+            
+            # Apply to job link
+            job_url = job.get('url', '#')
+            if job_url and job_url != '#':
+                st.markdown("---")
+                st.link_button("🚀 Apply to Job", job_url, use_container_width=True, type="secondary")
 
 def format_resume_as_text(resume_data):
     """Format structured resume JSON as plain text"""
