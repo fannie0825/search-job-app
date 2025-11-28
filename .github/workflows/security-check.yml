@@ -1,0 +1,41 @@
+name: Security Check
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Check for .env in repository
+        run: |
+          if git ls-files | grep -q "\.env$"; then
+            echo "❌ ERROR: .env file is tracked in git!"
+            echo "This is a security risk. Remove it with: git rm --cached .env"
+            exit 1
+          else
+            echo "✅ .env is not tracked in git"
+          fi
+      
+      - name: Check for hardcoded API keys
+        run: |
+          if git grep -i "api.*key.*=.*['\"].*[a-zA-Z0-9]{20,}" -- ':!*.md' ':!.gitignore' ':!*.example' ':!scripts/*' ':!.github/*'; then
+            echo "⚠️  WARNING: Potential hardcoded API keys found"
+            echo "Please review the matches above"
+          else
+            echo "✅ No hardcoded API keys found"
+          fi
+      
+      - name: Verify .gitignore includes .env
+        run: |
+          if grep -q "\.env" .gitignore; then
+            echo "✅ .env is in .gitignore"
+          else
+            echo "❌ ERROR: .env is not in .gitignore"
+            exit 1
+          fi
