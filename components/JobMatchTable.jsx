@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, FileText, ExternalLink } from 'lucide-react';
+import LoadingSpinner from './LoadingSpinner';
 
-const JobMatchTable = () => {
+const JobMatchTable = ({ jobs = null, loading = false, onTailorResume, toast }) => {
   const [expandedRows, setExpandedRows] = useState(new Set([2])); // Row 3 (index 2) expanded by default
 
-  const mockJobs = [
+  const defaultJobs = [
     {
       id: 1,
       rank: 1,
@@ -62,6 +63,9 @@ const JobMatchTable = () => {
     }
   ];
 
+  // Use provided jobs or fallback to default mock data
+  const displayJobs = jobs || defaultJobs;
+
   const toggleRow = (id) => {
     const newExpanded = new Set(expandedRows);
     if (newExpanded.has(id)) {
@@ -72,13 +76,16 @@ const JobMatchTable = () => {
     setExpandedRows(newExpanded);
   };
 
-  const handleTailorResume = (job) => {
-    console.log(`Generating tailored resume for: ${job.jobTitle} at ${job.company}`);
-    // Show toast notification
-    if (window.toast) {
-      window.toast(`Generating tailored resume for ${job.jobTitle}...`);
+  const handleTailorResume = async (job) => {
+    if (onTailorResume) {
+      try {
+        await onTailorResume(job);
+      } catch (error) {
+        console.error('Error tailoring resume:', error);
+      }
     } else {
-      alert(`Generating tailored resume for ${job.jobTitle}...`);
+      console.log(`Generating tailored resume for: ${job.jobTitle} at ${job.company}`);
+      toast?.info(`Generating tailored resume for ${job.jobTitle}...`);
     }
   };
 
@@ -88,13 +95,33 @@ const JobMatchTable = () => {
     return 'bg-status-error';
   };
 
+  if (loading) {
+    return (
+      <div className="card p-6 bg-bg-card dark:bg-dark-bg-card border-card">
+        <div className="flex items-center justify-center py-12">
+          <LoadingSpinner size="lg" />
+          <span className="ml-3 text-text-body dark:text-dark-text-secondary">
+            Loading job matches...
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="card p-6 bg-bg-card dark:bg-dark-bg-card border-card">
       <h2 className="text-xl font-bold text-text-heading dark:text-dark-text-primary mb-6">
         Smart Ranked Matches
       </h2>
       
-      <div className="overflow-x-auto">
+      {displayJobs.length === 0 ? (
+        <div className="text-center py-12">
+          <p className="text-text-muted dark:text-dark-text-secondary">
+            No job matches found. Try adjusting your filters.
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="border-b border-gray-200 dark:border-dark-border">
@@ -122,7 +149,7 @@ const JobMatchTable = () => {
             </tr>
           </thead>
           <tbody>
-            {mockJobs.map((job) => {
+            {displayJobs.map((job) => {
               const isExpanded = expandedRows.has(job.id);
               return (
                 <React.Fragment key={job.id}>
@@ -230,6 +257,7 @@ const JobMatchTable = () => {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 };

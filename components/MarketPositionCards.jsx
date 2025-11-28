@@ -1,8 +1,9 @@
 import React from 'react';
 import { TrendingUp, AlertCircle, Award } from 'lucide-react';
+import LoadingSpinner from './LoadingSpinner';
 
-const MarketPositionCards = () => {
-  const cards = [
+const MarketPositionCards = ({ data = null, loading = false }) => {
+  const defaultCards = [
     {
       id: 1,
       title: 'Estimated Salary Band',
@@ -37,6 +38,57 @@ const MarketPositionCards = () => {
       description: 'Most valued certification in your target market'
     }
   ];
+
+  // Use provided data or fallback to default mock data
+  const cards = data ? [
+    {
+      id: 1,
+      title: 'Estimated Salary Band',
+      value: data.salaryBand || 'HK$45k-60k',
+      icon: TrendingUp,
+      iconColor: 'text-status-success',
+      iconBg: 'bg-status-success/10',
+      delta: data.salaryDelta || '+12% vs market avg',
+      deltaColor: 'text-status-success',
+      description: data.salaryDescription || 'Your experience aligns with mid-senior level roles'
+    },
+    {
+      id: 2,
+      title: 'Top Skill Gap',
+      value: data.topSkillGap || 'Cloud Architecture',
+      icon: AlertCircle,
+      iconColor: 'text-status-warning',
+      iconBg: 'bg-status-warning/10',
+      delta: data.skillGapDelta || 'High demand in HK',
+      deltaColor: 'text-status-warning',
+      description: data.skillGapDescription || 'Consider AWS or Azure certifications'
+    },
+    {
+      id: 3,
+      title: 'Recommended Accreditation',
+      value: data.recommendedAccreditation || 'AWS Certified Solutions Architect',
+      icon: Award,
+      iconColor: 'text-accent',
+      iconBg: 'bg-accent/10',
+      delta: data.accreditationDelta || 'Unlock 15% more roles',
+      deltaColor: 'text-accent',
+      description: data.accreditationDescription || 'Most valued certification in your target market'
+    }
+  ] : defaultCards;
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="card p-6 bg-bg-card dark:bg-dark-bg-card border-card">
+            <div className="flex items-center justify-center py-8">
+              <LoadingSpinner size="lg" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">

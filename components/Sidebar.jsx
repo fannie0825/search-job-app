@@ -1,18 +1,38 @@
-import React, { useState } from 'react';
-import { Upload, X, Menu } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Upload, X, Menu, CheckCircle } from 'lucide-react';
 import Logo from './Logo';
+import { useFileUpload } from '../hooks/useFileUpload';
+import { useLocalStorage } from '../hooks/useLocalStorage';
+import LoadingSpinner from './LoadingSpinner';
 
-const Sidebar = ({ isOpen, onClose, isMobile }) => {
-  const [targetIndustries, setTargetIndustries] = useState(['FinTech']);
-  const [minSalary, setMinSalary] = useState(4000);
-  const [maxSalary, setMaxSalary] = useState(90000);
+const Sidebar = ({ isOpen, onClose, isMobile, onFileUploaded, onAnalyze, toast }) => {
+  const [targetIndustries, setTargetIndustries] = useLocalStorage('careerlens_industries', ['FinTech']);
+  const [minSalary, setMinSalary] = useLocalStorage('careerlens_min_salary', 4000);
+  const [maxSalary, setMaxSalary] = useLocalStorage('careerlens_max_salary', 90000);
+  const [uploadedFileName, setUploadedFileName] = useState(null);
+
+  const { uploadFile, uploading, progress, uploadedFile, reset } = useFileUpload(
+    (fileResult, profile) => {
+      setUploadedFileName(fileResult.filename || fileResult.name);
+      toast?.success('Resume uploaded successfully!');
+      onFileUploaded?.(fileResult, profile);
+    },
+    (error) => {
+      toast?.error(error);
+    }
+  );
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-      console.log('File uploaded:', file.name);
-      // Handle file upload logic here
+      uploadFile(file);
     }
+  };
+
+  const handleRemoveFile = () => {
+    reset();
+    setUploadedFileName(null);
+    toast?.info('Resume removed');
   };
 
   const removeIndustry = (industry) => {
@@ -53,19 +73,58 @@ const Sidebar = ({ isOpen, onClose, isMobile }) => {
           <h3 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wide">
             Upload Resume
           </h3>
-          <label className="block">
-            <input
-              type="file"
-              accept=".pdf,.docx"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-            <div className="border-2 border-dashed border-navy-light rounded-lg p-6 text-center cursor-pointer hover:border-accent transition-colors group">
-              <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400 group-hover:text-accent transition-colors" />
-              <p className="text-sm text-gray-300 mb-1">PDF or DOCX</p>
-              <p className="text-xs text-gray-400">Click to upload or drag and drop</p>
+          {uploadedFileName ? (
+            <div className="border-2 border-accent rounded-lg p-4 bg-accent/10">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <CheckCircle className="w-5 h-5 text-status-success flex-shrink-0" />
+                  <span className="text-sm text-white truncate">{uploadedFileName}</span>
+                </div>
+                <button
+                  onClick={handleRemoveFile}
+                  className="p-1 hover:bg-navy-light rounded transition-colors flex-shrink-0"
+                  aria-label="Remove file"
+                >
+                  <X className="w-4 h-4 text-gray-400" />
+                </button>
+              </div>
+              {progress > 0 && progress < 100 && (
+                <div className="w-full bg-navy-light rounded-full h-1.5 mt-2">
+                  <div
+                    className="bg-accent h-1.5 rounded-full transition-all duration-300"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              )}
             </div>
-          </label>
+          ) : (
+            <label className="block">
+              <input
+                type="file"
+                accept=".pdf,.docx"
+                onChange={handleFileUpload}
+                disabled={uploading}
+                className="hidden"
+              />
+              <div className={`border-2 border-dashed border-navy-light rounded-lg p-6 text-center cursor-pointer hover:border-accent transition-colors group ${
+                uploading ? 'opacity-50 cursor-not-allowed' : ''
+              }`}>
+                {uploading ? (
+                  <>
+                    <LoadingSpinner size="lg" className="mx-auto mb-2" />
+                    <p className="text-sm text-gray-300 mb-1">Uploading...</p>
+                    <p className="text-xs text-gray-400">{progress}%</p>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-8 h-8 mx-auto mb-2 text-gray-400 group-hover:text-accent transition-colors" />
+                    <p className="text-sm text-gray-300 mb-1">PDF or DOCX</p>
+                    <p className="text-xs text-gray-400">Click to upload or drag and drop</p>
+                  </>
+                )}
+              </div>
+            </label>
+          )}
         </div>
 
         {/* Filters Section */}
@@ -144,12 +203,29 @@ const Sidebar = ({ isOpen, onClose, isMobile }) => {
       <div className="p-6 border-t border-navy-light">
         <button
           onClick={() => {
-            console.log('Analyze & Benchmark clicked');
-            // Handle analyze action
+            if (!uploadedFileName) {
+              toast?.warning('Please upload a resume first');
+              return;
+            }
+            onAnalyze?.({
+              industries: targetIndustries,
+              minSalary,
+              maxSalary,
+            });
           }}
-          className="w-full bg-accent hover:bg-accent-dark text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+          disabled={uploading || !uploadedFileName}
+          className={`w-full bg-accent hover:bg-accent-dark text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 ${
+            uploading || !uploadedFileName ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
         >
-          Analyze & Benchmark
+          {uploading ? (
+            <span className="flex items-center justify-center gap-2">
+              <LoadingSpinner size="sm" />
+              Uploading...
+            </span>
+          ) : (
+            'Analyze & Benchmark'
+          )}
         </button>
       </div>
     </div>
