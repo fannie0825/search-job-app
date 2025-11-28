@@ -778,11 +778,16 @@ IMPORTANT: Return ONLY the JSON object, no markdown code blocks, no additional t
             match_score = float(similarity)
             
             # Extract keywords from job description using AI
+            # Use up to 8000 characters for keyword extraction (enough for most JDs while staying within API limits)
+            job_desc_for_keywords = job_description[:8000] if len(job_description) > 8000 else job_description
+            if len(job_description) > 8000:
+                job_desc_for_keywords += "\n\n[Description truncated for keyword extraction - full description available for matching]"
+            
             keyword_prompt = f"""Extract the most important technical skills, tools, technologies, and qualifications mentioned in this job description. 
 Return ONLY a JSON object with a "keywords" array, no additional text.
 
 Job Description:
-{job_description[:2000]}
+{job_desc_for_keywords}
 
 Return format: {{"keywords": ["keyword1", "keyword2", "keyword3", ...]}}"""
             
@@ -881,11 +886,16 @@ class IndeedScraperAPI:
             benefits = job_data.get('benefits', [])
             attributes = job_data.get('attributes', [])
             
+            # Get full description without truncation
+            full_description = job_data.get('descriptionText', 'No description')
+            # Store full description, but limit to 50000 chars to prevent memory issues
+            description = full_description[:50000] if len(full_description) > 50000 else full_description
+            
             return {
                 'title': job_data.get('title', 'N/A'),
                 'company': job_data.get('companyName', 'N/A'),
                 'location': location,
-                'description': job_data.get('descriptionText', 'No description')[:2000],
+                'description': description,
                 'salary': 'Not specified',
                 'job_type': job_type,
                 'url': job_data.get('jobUrl', '#'),
@@ -1033,8 +1043,21 @@ def display_job_card(result, index):
     col1, col2 = st.columns([4, 1])
     
     with col1:
-        with st.expander("📝 View Full Description"):
-            st.write(job['description'])
+        with st.expander("📝 View Full Description", expanded=False):
+            # Display full description with proper formatting
+            description_text = job['description']
+            if len(description_text) > 10000:
+                st.info(f"📄 Full description ({len(description_text):,} characters)")
+                # Use text area for very long descriptions to allow scrolling
+                st.text_area(
+                    "Job Description",
+                    value=description_text,
+                    height=400,
+                    key=f"desc_{index}",
+                    label_visibility="collapsed"
+                )
+            else:
+                st.write(description_text)
     
     with col2:
         col2a, col2b = st.columns(2)
