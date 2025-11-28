@@ -24,50 +24,254 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+    /* Dynamic Color Palette - CSS Variables */
+    :root {
+        /* Light Mode Colors (Elegant/Minimal) */
+        --primary-accent: #00796B;
+        --action-accent: #FFC107;
+        --bg-main: #FAFAFA;
+        --bg-container: #F0F0F0;
+        --text-primary: #333333;
+        --text-secondary: #666666;
+        --success-green: #4CAF50;
+    }
+    
+    /* Dark Mode Colors (Professional/Youthful) */
+    [data-theme="dark"] {
+        --primary-accent: #4DD0E1;
+        --action-accent: #FF9800;
+        --bg-main: #1E2124;
+        --bg-container: #282C31;
+        --text-primary: #E0E0E0;
+        --text-secondary: #B0B0B0;
+        --success-green: #66BB6A;
+    }
+    
+    /* Override Streamlit dark mode */
+    .stApp[data-theme="dark"] {
+        --primary-accent: #4DD0E1;
+        --action-accent: #FF9800;
+        --bg-main: #1E2124;
+        --bg-container: #282C31;
+        --text-primary: #E0E0E0;
+        --text-secondary: #B0B0B0;
+        --success-green: #66BB6A;
+    }
+    
+    /* Main Header */
     .main-header {
         font-size: 3rem;
         font-weight: bold;
-        background: linear-gradient(120deg, #1f77b4, #2ecc71);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        color: var(--primary-accent);
         text-align: center;
         margin-bottom: 1rem;
+        letter-spacing: -0.02em;
     }
+    
     .sub-header {
         font-size: 1.2rem;
         text-align: center;
-        color: #666;
+        color: var(--text-secondary);
         margin-bottom: 2rem;
     }
-    .job-card {
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        padding: 1.5rem;
-        border-radius: 15px;
-        border-left: 5px solid #1f77b4;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        transition: transform 0.2s;
+    
+    /* Step Hierarchy - Visual Markers */
+    .step-marker {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.5rem;
+        height: 2.5rem;
+        border-radius: 50%;
+        background-color: var(--primary-accent);
+        color: white;
+        font-size: 1.2rem;
+        font-weight: bold;
+        margin-right: 1rem;
+        flex-shrink: 0;
     }
+    
+    .step-container {
+        margin: 2rem 0;
+        padding: 2rem;
+        background-color: var(--bg-container);
+        border-radius: 12px;
+        border: none;
+    }
+    
+    /* Job Card - Minimalist Design */
+    .job-card {
+        background-color: var(--bg-container);
+        padding: 1.5rem;
+        border-radius: 12px;
+        margin-bottom: 1.5rem;
+        border: none;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
     .job-card:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
     }
+    
+    /* Match Score - Action Accent */
     .match-score {
-        background: linear-gradient(120deg, #1f77b4, #2ecc71);
+        background-color: var(--action-accent);
         color: white;
         padding: 0.4rem 1rem;
-        border-radius: 25px;
+        border-radius: 20px;
         font-weight: bold;
         display: inline-block;
         font-size: 0.9rem;
     }
+    
+    /* Tags */
     .tag {
         display: inline-block;
-        background-color: #e9ecef;
+        background-color: var(--bg-container);
+        color: var(--text-primary);
         padding: 0.3rem 0.8rem;
         border-radius: 12px;
         margin: 0.2rem;
         font-size: 0.85rem;
+        border: none;
+    }
+    
+    /* Borderless Input Fields */
+    .stTextInput > div > div > input,
+    .stTextArea > div > div > textarea,
+    .stSelectbox > div > div > select {
+        border: none !important;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
+        border-radius: 0 !important;
+        background-color: transparent !important;
+        padding: 0.5rem 0 !important;
+        transition: border-color 0.3s ease !important;
+    }
+    
+    .stTextInput > div > div > input:focus,
+    .stTextArea > div > div > textarea:focus {
+        border-bottom: 2px solid var(--primary-accent) !important;
+        outline: none !important;
+        box-shadow: none !important;
+    }
+    
+    /* Dark mode input styling */
+    [data-theme="dark"] .stTextInput > div > div > input,
+    [data-theme="dark"] .stTextArea > div > div > textarea,
+    [data-theme="dark"] .stSelectbox > div > div > select {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
+        color: var(--text-primary) !important;
+    }
+    
+    [data-theme="dark"] .stTextInput > div > div > input:focus,
+    [data-theme="dark"] .stTextArea > div > div > textarea:focus {
+        border-bottom: 2px solid var(--primary-accent) !important;
+    }
+    
+    /* Buttons - Rounded with Primary Accent */
+    .stButton > button {
+        border-radius: 8px !important;
+        border: none !important;
+        font-weight: 500 !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    .stButton > button[kind="primary"] {
+        background-color: var(--primary-accent) !important;
+        color: white !important;
+    }
+    
+    .stButton > button[kind="primary"]:hover {
+        background-color: var(--primary-accent) !important;
+        opacity: 0.9 !important;
+        transform: translateY(-1px) !important;
+    }
+    
+    /* Sliders - Action Accent Fill */
+    /* Target Streamlit slider track fill */
+    .stSlider [data-baseweb="slider"] > div:first-child {
+        background-color: var(--action-accent) !important;
+    }
+    
+    /* Target slider track background */
+    .stSlider [data-baseweb="slider-track"] {
+        background-color: var(--action-accent) !important;
+    }
+    
+    /* Alternative selector for slider fill */
+    .stSlider div[style*="background-color"] {
+        background-color: var(--action-accent) !important;
+    }
+    
+    /* Target slider thumb/handle */
+    .stSlider [data-baseweb="slider-thumb"] {
+        background-color: var(--action-accent) !important;
+        border-color: var(--action-accent) !important;
+    }
+    
+    /* Status Indicators - Profile Ready */
+    .profile-ready {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--success-green);
+        font-weight: 500;
+    }
+    
+    .profile-ready::before {
+        content: "✓";
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.2rem;
+        height: 1.2rem;
+        border-radius: 50%;
+        background-color: var(--success-green);
+        color: white;
+        font-size: 0.8rem;
+        font-weight: bold;
+    }
+    
+    /* Match Score Display - Prominent with Action Accent */
+    .match-score-display {
+        font-size: 2rem;
+        font-weight: bold;
+        color: var(--action-accent);
+        text-align: center;
+    }
+    
+    /* Step 3 Containers - Automatic/Manual Search */
+    .step3-container {
+        background-color: var(--bg-container);
+        padding: 1.5rem;
+        border-radius: 12px;
+        margin: 1rem 0;
+    }
+    
+    /* Minimal Dividers */
+    hr {
+        border: none;
+        border-top: 1px solid rgba(0, 0, 0, 0.08);
+        margin: 2rem 0;
+    }
+    
+    [data-theme="dark"] hr {
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    /* Remove default Streamlit borders and shadows */
+    .element-container {
+        border: none !important;
+        box-shadow: none !important;
+    }
+    
+    /* Card-like containers for Step 3 */
+    .matching-container {
+        background-color: var(--bg-container);
+        padding: 1.5rem;
+        border-radius: 12px;
+        margin-bottom: 1rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -504,8 +708,8 @@ def display_job_card(result, index):
     <div class="job-card">
         <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
             <div style="flex-grow: 1;">
-                <h3 style="margin: 0; color: #1f77b4;">#{index} {job['title']}</h3>
-                <p style="margin: 0.5rem 0; color: #666; font-size: 0.95rem;">
+                <h3 style="margin: 0; color: var(--primary-accent);">#{index} {job['title']}</h3>
+                <p style="margin: 0.5rem 0; color: var(--text-secondary); font-size: 0.95rem;">
                     🏢 <strong>{job['company']}</strong> {stars} • 📍 {job['location']} {remote_badge}
                 </p>
             </div>
@@ -513,7 +717,7 @@ def display_job_card(result, index):
                 {score:.1%} Match
             </div>
         </div>
-        <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.5rem; color: var(--text-secondary);">
             <span>⏰ {job['job_type']}</span>
             <span>💰 {job['salary']}</span>
             <span>📅 {job['posted_date']}</span>
@@ -1036,11 +1240,13 @@ def display_match_score_feedback(match_score, missing_keywords, job_title):
             score_color = "🔴"
             feedback = "Moderate match. Your resume may need more tailoring."
         
-        st.metric(
-            f"{score_color} Match Score",
-            f"{score_percent:.1f}%",
-            help=feedback
-        )
+        st.markdown(f"""
+        <div style="text-align: center; margin: 1rem 0;">
+            <div class="match-score-display">{score_percent:.0f}%</div>
+            <p style="color: var(--text-secondary); margin-top: 0.5rem;">Match Score</p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.caption(f"**Analysis:** {feedback}")
     
     # Missing keywords
     if missing_keywords:
@@ -1072,8 +1278,8 @@ def display_resume_generator():
     # Display selected job info
     st.markdown(f"""
     <div class="job-card">
-        <h3 style="color: #1f77b4; margin: 0;">{job['title']}</h3>
-        <p style="margin: 0.5rem 0; color: #666;">🏢 {job['company']} • 📍 {job['location']}</p>
+        <h3 style="color: var(--primary-accent); margin: 0;">{job['title']}</h3>
+        <p style="margin: 0.5rem 0; color: var(--text-secondary);">🏢 {job['company']} • 📍 {job['location']}</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1313,7 +1519,12 @@ def main():
     
     # Step 1: Profile Setup Section
     st.markdown("---")
-    st.header("📝 Step 1: Set Up Your Profile")
+    st.markdown("""
+    <div style="display: flex; align-items: center; margin-bottom: 1rem;">
+        <span class="step-marker">①</span>
+        <h2 style="margin: 0; color: var(--text-primary);">Set Up Your Profile</h2>
+    </div>
+    """, unsafe_allow_html=True)
     st.caption("Upload your resume or fill in your profile information to get started")
     
     # Check if profile is complete
@@ -1324,7 +1535,8 @@ def main():
     profile_complete = has_resume or has_profile
     
     if profile_complete:
-        st.success("✅ Profile ready! You can update it below or proceed to job search.")
+        st.markdown('<p class="profile-ready">Profile Ready</p>', unsafe_allow_html=True)
+        st.caption("You can update it below or proceed to job search.")
         if st.button("✏️ Edit Profile", use_container_width=False):
             st.session_state.show_profile_editor = not st.session_state.get('show_profile_editor', False)
             st.rerun()
@@ -1339,7 +1551,12 @@ def main():
     st.markdown("---")
     
     # Step 2: Fetch Jobs Section
-    st.header("🔍 Step 2: Find Jobs")
+    st.markdown("""
+    <div style="display: flex; align-items: center; margin-bottom: 1rem;">
+        <span class="step-marker">②</span>
+        <h2 style="margin: 0; color: var(--text-primary);">Find Jobs</h2>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Job search settings in main area (not sidebar)
     st.subheader("Search Settings")
@@ -1403,12 +1620,18 @@ def main():
     
     jobs = st.session_state.jobs_cache['jobs']
     st.markdown("---")
-    st.header("🎯 Step 3: Match or Search Jobs")
+    st.markdown("""
+    <div style="display: flex; align-items: center; margin-bottom: 1rem;">
+        <span class="step-marker">③</span>
+        <h2 style="margin: 0; color: var(--text-primary);">Match or Search Jobs</h2>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Create two columns for automatic matching vs manual search
     col1, col2 = st.columns(2)
     
     with col1:
+        st.markdown('<div class="step3-container">', unsafe_allow_html=True)
         st.subheader("🤖 Automatic Matching")
         if profile_complete:
             st.info("💡 We'll find the best matching jobs based on your profile!")
@@ -1447,8 +1670,10 @@ def main():
         else:
             st.warning("⚠️ Complete your profile first to use automatic matching")
             st.info("💡 Go to Step 1 above to upload your resume or fill in your profile")
+        st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
+        st.markdown('<div class="step3-container">', unsafe_allow_html=True)
         st.subheader("🔍 Manual Search")
         st.info("💡 Describe your ideal job and we'll find matches!")
         
@@ -1481,6 +1706,7 @@ def main():
             st.rerun()
         elif search_button:
             st.warning("⚠️ Please enter a search query")
+        st.markdown('</div>', unsafe_allow_html=True)
     
     # Display matched jobs
     if st.session_state.matched_jobs:
