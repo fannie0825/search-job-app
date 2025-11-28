@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "build:css": "tailwindcss -i ./globals.css -o ./dist/output.css --watch",
-    "check-env": "node scripts/check-env.js"
+    "check-env": "node scripts/check-env.js",
+    "check-security": "node scripts/check-security.js"
   },
   "dependencies": {
     "react": "^18.2.0",
