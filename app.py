@@ -88,6 +88,10 @@ if 'selected_job' not in st.session_state:
     st.session_state.selected_job = None
 if 'show_resume_generator' not in st.session_state:
     st.session_state.show_resume_generator = False
+if 'resume_text' not in st.session_state:
+    st.session_state.resume_text = None
+if 'matched_jobs' not in st.session_state:
+    st.session_state.matched_jobs = []
 
 class APIMEmbeddingGenerator:
     def __init__(self, api_key, endpoint):
@@ -546,6 +550,8 @@ def display_user_profile():
                 resume_text = extract_text_from_resume(uploaded_file)
                 
                 if resume_text:
+                    # Store resume text for job matching
+                    st.session_state.resume_text = resume_text
                     st.success(f"✅ Extracted {len(resume_text)} characters from resume")
                     
                     # Show extracted text preview
@@ -703,6 +709,11 @@ def display_resume_generator():
                     del st.session_state.resume_editor
                 st.success("✅ Resume generated successfully!")
                 st.balloons()
+                # Rerun to update the UI with the generated resume
+                time.sleep(0.5)
+                st.rerun()
+            else:
+                st.error("❌ Failed to generate resume. Please try again.")
     
     # Display generated resume
     if st.session_state.generated_resume:
@@ -820,7 +831,88 @@ def main():
         jobs = st.session_state.jobs_cache['jobs']
         
         st.markdown("---")
-        st.header("🎯 Semantic Search")
+        
+        # Automatic job matching based on uploaded resume or profile
+        has_resume = st.session_state.resume_text is not None
+        has_profile = (st.session_state.user_profile.get('summary') or 
+                      st.session_state.user_profile.get('experience') or 
+                      st.session_state.user_profile.get('skills'))
+        
+        if has_resume or has_profile:
+            st.header("🎯 Automatic Job Matching")
+            if has_resume:
+                st.info("💡 We'll automatically find the best matching jobs based on your uploaded resume!")
+            else:
+                st.info("💡 We'll automatically find the best matching jobs based on your profile!")
+            
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                if has_resume:
+                    st.write("**Resume-based matching will analyze your skills, experience, and qualifications to find the best fit jobs.**")
+                else:
+                    st.write("**Profile-based matching will analyze your skills, experience, and qualifications to find the best fit jobs.**")
+            
+            with col2:
+                num_results_auto = st.number_input("Results", 1, len(jobs), min(10, len(jobs)), key="auto_results")
+                min_score_auto = st.slider("Min score", 0.0, 1.0, 0.0, 0.05, key="auto_min_score")
+            
+            match_button = st.button("🎯 Find Best Matching Jobs", type="primary", use_container_width=True, key="auto_match")
+            
+            if match_button:
+                embedding_gen = get_embedding_generator()
+                search_engine = SemanticJobSearch(embedding_gen)
+                search_engine.index_jobs(jobs)
+                
+                # Create a comprehensive query from resume text or profile
+                if has_resume:
+                    resume_query = st.session_state.resume_text
+                    # If we have structured profile, enhance the query
+                    if st.session_state.user_profile.get('summary'):
+                        profile_data = f"{st.session_state.user_profile.get('summary', '')} {st.session_state.user_profile.get('experience', '')} {st.session_state.user_profile.get('skills', '')}"
+                        resume_query = f"{resume_query} {profile_data}"
+                else:
+                    # Use profile data to create query
+                    resume_query = f"{st.session_state.user_profile.get('summary', '')} {st.session_state.user_profile.get('experience', '')} {st.session_state.user_profile.get('skills', '')} {st.session_state.user_profile.get('education', '')}"
+                
+                with st.spinner("🤖 Analyzing your profile and matching jobs..."):
+                    results = search_engine.search(resume_query, top_k=num_results_auto)
+                
+                results = [r for r in results if r['similarity_score'] >= min_score_auto]
+                st.session_state.matched_jobs = results
+                
+                st.markdown("---")
+                
+                if results:
+                    st.success(f"✅ Found {len(results)} matching jobs based on your profile!")
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Avg Match", f"{np.mean([r['similarity_score'] for r in results]):.1%}")
+                    with col2:
+                        st.metric("Best Match", f"{results[0]['similarity_score']:.1%}")
+                    with col3:
+                        st.metric("Total Jobs", len(results))
+                    
+                    st.markdown("---")
+                    
+                    for i, result in enumerate(results, 1):
+                        display_job_card(result, i)
+                else:
+                    st.warning("No matching jobs found. Try adjusting the minimum score or fetch more jobs.")
+            
+            # Display previously matched jobs if available
+            elif st.session_state.matched_jobs:
+                st.info(f"💡 Showing {len(st.session_state.matched_jobs)} previously matched jobs. Click 'Find Best Matching Jobs' to refresh.")
+                st.markdown("---")
+                
+                for i, result in enumerate(st.session_state.matched_jobs, 1):
+                    display_job_card(result, i)
+            
+            st.markdown("---")
+            st.markdown("---")
+        
+        st.header("🎯 Manual Semantic Search")
         
         col1, col2 = st.columns([3, 1])
         
@@ -828,17 +920,18 @@ def main():
             user_query = st.text_area(
                 "Describe your ideal job",
                 height=150,
-                placeholder="Python developer with ML experience..."
+                placeholder="Python developer with ML experience...",
+                key="manual_search"
             )
         
         with col2:
             st.write("")
             st.write("")
-            num_results = st.number_input("Results", 1, len(jobs), min(10, len(jobs)))
+            num_results = st.number_input("Results", 1, len(jobs), min(10, len(jobs)), key="manual_results")
             st.write("")
-            min_score = st.slider("Min score", 0.0, 1.0, 0.0, 0.05)
+            min_score = st.slider("Min score", 0.0, 1.0, 0.0, 0.05, key="manual_min_score")
         
-        search_button = st.button("🔍 Search", type="primary", use_container_width=True)
+        search_button = st.button("🔍 Search", type="primary", use_container_width=True, key="manual_search_btn")
         
         if search_button and user_query:
             embedding_gen = get_embedding_generator()
