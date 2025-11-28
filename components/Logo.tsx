@@ -28,92 +28,52 @@ const Logo: React.FC<LogoProps> = ({
 
   const currentSize = sizeClasses[size] || sizeClasses.default;
 
-  const ApertureIcon: React.FC = () => (
-    <svg 
-      className={currentSize.icon}
-      viewBox="0 0 200 200" 
-      fill="none" 
-      xmlns="http://www.w3.org/2000/svg"
-      aria-label="CareerLens Logo"
-    >
-      <defs>
-        <linearGradient id="apertureGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{stopColor: darkMode ? '#60A5FA' : '#3B82F6', stopOpacity: 1}} />
-          <stop offset="100%" style={{stopColor: darkMode ? '#3B82F6' : '#2563EB', stopOpacity: 1}} />
-        </linearGradient>
-      </defs>
-      
-      {/* Outer ring for depth */}
-      <circle 
-        cx="100" 
-        cy="100" 
-        r="90" 
+  const ApertureIcon: React.FC = () => {
+    const accentColor = darkMode ? '#60A5FA' : '#3B82F6';
+    const centerColor = darkMode ? '#1F2937' : '#1A2B45';
+    
+    return (
+      <svg 
+        className={currentSize.icon}
+        viewBox="0 0 100 100" 
         fill="none" 
-        stroke={darkMode ? '#60A5FA' : '#3B82F6'} 
-        strokeWidth="2" 
-        opacity="0.3"
-      />
-      
-      {/* Aperture blades forming "C" shape */}
-      <path 
-        d="M 100 10 Q 150 10 180 60 L 170 70 Q 140 30 100 30 Z" 
-        fill="url(#apertureGradient)" 
-        opacity="0.9"
-      />
-      <path 
-        d="M 180 60 Q 190 100 180 140 L 170 130 Q 175 100 170 70 Z" 
-        fill="url(#apertureGradient)" 
-        opacity="0.85"
-      />
-      <path 
-        d="M 180 140 Q 150 190 100 190 L 100 180 Q 140 180 170 130 Z" 
-        fill="url(#apertureGradient)" 
-        opacity="0.9"
-      />
-      <path 
-        d="M 100 190 Q 50 190 20 140 L 30 130 Q 60 180 100 180 Z" 
-        fill="url(#apertureGradient)" 
-        opacity="0.7"
-      />
-      <path 
-        d="M 20 140 Q 10 100 20 60 L 30 70 Q 25 100 30 130 Z" 
-        fill="url(#apertureGradient)" 
-        opacity="0.6"
-      />
-      
-      {/* Inner lens circle */}
-      <circle 
-        cx="100" 
-        cy="100" 
-        r="35" 
-        fill="url(#apertureGradient)" 
-        opacity="0.2"
-      />
-      <circle 
-        cx="100" 
-        cy="100" 
-        r="30" 
-        fill="none" 
-        stroke={darkMode ? '#60A5FA' : '#3B82F6'} 
-        strokeWidth="1.5" 
-        opacity="0.5"
-      />
-      
-      {/* Center focus point */}
-      <circle 
-        cx="100" 
-        cy="100" 
-        r="8" 
-        fill="url(#apertureGradient)}
-      />
-      <circle 
-        cx="100" 
-        cy="100" 
-        r="4" 
-        fill="#FFFFFF"
-      />
-    </svg>
-  );
+        xmlns="http://www.w3.org/2000/svg"
+        aria-label="CareerLens Logo"
+      >
+        {/* Outer circle for depth */}
+        <circle 
+          cx="50" 
+          cy="50" 
+          r="45" 
+          stroke={accentColor} 
+          strokeWidth="10" 
+          className="opacity-20"
+        />
+        
+        {/* The Aperture Blades forming a C shape */}
+        <path 
+          d="M50 25L65 50L50 75L35 50L50 25Z" 
+          fill={accentColor}
+        />
+        
+        {/* C-shaped arc */}
+        <path 
+          d="M85 50C85 69.33 69.33 85 50 85C30.67 85 15 69.33 15 50" 
+          stroke={accentColor} 
+          strokeWidth="10" 
+          strokeLinecap="round"
+        />
+        
+        {/* Center focus point */}
+        <circle 
+          cx="50" 
+          cy="50" 
+          r="8" 
+          fill={centerColor}
+        />
+      </svg>
+    );
+  };
 
   if (variant === 'icon') {
     return (

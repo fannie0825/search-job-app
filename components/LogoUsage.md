@@ -2,11 +2,17 @@
 
 ## Logo Design: "Focus Aperture"
 
-The CareerLens logo features a stylized camera aperture/iris that forms the shape of a "C", representing:
+The CareerLens logo features a clean, modern camera aperture design that forms the shape of a "C", representing:
 - **Clarity**: Clear focus on opportunities
 - **Precision**: AI-powered targeting
 - **Vision**: Seeing the right career path
 - **Technology**: Modern, tech-forward aesthetic
+
+The design consists of:
+- An outer circle for depth and context
+- Aperture blades forming a diamond/star shape in the center
+- A C-shaped arc that completes the "C" letterform
+- A center focus point representing precision and clarity
 
 ## Logo Variants
 
@@ -78,6 +84,17 @@ The logo automatically adapts to dark mode when using the component:
 ### Direct SVG Usage
 ```jsx
 <img src="/logo.svg" alt="CareerLens" className="w-32 h-32" />
+```
+
+### Using LogoAperture Component (Simplified)
+```jsx
+import { LogoAperture } from './components/LogoAperture';
+
+// Simple usage
+<LogoAperture className="w-8 h-8" />
+
+// With dark mode
+<LogoAperture className="w-8 h-8" darkMode={isDarkMode} />
 ```
 
 ## Color Specifications

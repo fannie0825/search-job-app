@@ -1,35 +1,13 @@
-<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="apertureGradientDark" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#60A5FA;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#3B82F6;stop-opacity:1" />
-    </linearGradient>
-  </defs>
+<svg width="200" height="200" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Outer circle for depth -->
+  <circle cx="50" cy="50" r="45" stroke="#60A5FA" stroke-width="10" opacity="0.2"/>
   
-  <!-- Outer ring for depth -->
-  <circle cx="100" cy="100" r="90" fill="none" stroke="#60A5FA" stroke-width="2" opacity="0.3"/>
+  <!-- The Aperture Blades forming a C shape -->
+  <path d="M50 25L65 50L50 75L35 50L50 25Z" fill="#60A5FA"/>
   
-  <!-- Aperture blades forming "C" shape -->
-  <!-- Top blade -->
-  <path d="M 100 10 Q 150 10 180 60 L 170 70 Q 140 30 100 30 Z" fill="url(#apertureGradientDark)" opacity="0.9"/>
-  
-  <!-- Upper-middle blade -->
-  <path d="M 180 60 Q 190 100 180 140 L 170 130 Q 175 100 170 70 Z" fill="url(#apertureGradientDark)" opacity="0.85"/>
-  
-  <!-- Middle blade (forms the C opening) -->
-  <path d="M 180 140 Q 150 190 100 190 L 100 180 Q 140 180 170 130 Z" fill="url(#apertureGradientDark)" opacity="0.9"/>
-  
-  <!-- Lower blade (hidden/partial for C shape) -->
-  <path d="M 100 190 Q 50 190 20 140 L 30 130 Q 60 180 100 180 Z" fill="url(#apertureGradientDark)" opacity="0.7"/>
-  
-  <!-- Bottom blade (minimal for C opening) -->
-  <path d="M 20 140 Q 10 100 20 60 L 30 70 Q 25 100 30 130 Z" fill="url(#apertureGradientDark)" opacity="0.6"/>
-  
-  <!-- Inner circle (lens center) -->
-  <circle cx="100" cy="100" r="35" fill="url(#apertureGradientDark)" opacity="0.2"/>
-  <circle cx="100" cy="100" r="30" fill="none" stroke="#60A5FA" stroke-width="1.5" opacity="0.5"/>
+  <!-- C-shaped arc -->
+  <path d="M85 50C85 69.33 69.33 85 50 85C30.67 85 15 69.33 15 50" stroke="#60A5FA" stroke-width="10" stroke-linecap="round"/>
   
   <!-- Center focus point -->
-  <circle cx="100" cy="100" r="8" fill="url(#apertureGradientDark)"/>
-  <circle cx="100" cy="100" r="4" fill="#FFFFFF"/>
+  <circle cx="50" cy="50" r="8" fill="#1F2937"/>
 </svg>
