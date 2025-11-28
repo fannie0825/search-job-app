@@ -146,15 +146,10 @@ class APIMEmbeddingGenerator:
 class AzureOpenAITextGenerator:
     def __init__(self, api_key, endpoint):
         self.api_key = api_key
-        # Normalize endpoint: remove trailing slash
-        endpoint = endpoint.rstrip('/')
-        # Remove /openai if it's already in the endpoint (to avoid duplication)
-        if endpoint.endswith('/openai'):
-            endpoint = endpoint[:-7]  # Remove '/openai'
         self.endpoint = endpoint
         self.deployment = "gpt-4o-mini"  # or your deployment name
         self.api_version = "2024-02-01"
-        self.url = f"{self.endpoint}/openai/deployments/{self.deployment}/chat/completions?api-version={self.api_version}"
+        self.url = f"{endpoint}/openai/deployments/{self.deployment}/chat/completions?api-version={self.api_version}"
         self.headers = {"api-key": self.api_key, "Content-Type": "application/json"}
     
     def generate_resume(self, user_profile, job_posting):
@@ -203,8 +198,7 @@ Format the resume in a clean, professional text format with clear sections."""
                 result = response.json()
                 return result['choices'][0]['message']['content']
             else:
-                error_msg = f"API Error: {response.status_code} - {response.text}"
-                st.error(f"{error_msg}\n\nDebug info:\n- Base endpoint: {self.endpoint}\n- Full URL: {self.url}\n- Deployment: {self.deployment}\n- API Version: {self.api_version}")
+                st.error(f"API Error: {response.status_code} - {response.text}")
                 return None
         except Exception as e:
             st.error(f"Error generating resume: {e}")
@@ -517,9 +511,7 @@ Important:
                     st.error("Could not parse extracted profile data. Please try again.")
                     return None
         else:
-            error_msg = f"API Error: {response.status_code} - {response.text}"
-            # Add URL info for debugging (without exposing sensitive data)
-            st.error(f"{error_msg}\n\nDebug info:\n- Base endpoint: {text_gen.endpoint}\n- Full URL: {text_gen.url}\n- Deployment: {text_gen.deployment}\n- API Version: {text_gen.api_version}")
+            st.error(f"API Error: {response.status_code} - {response.text}")
             return None
             
     except Exception as e:
