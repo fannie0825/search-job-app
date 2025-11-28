@@ -16,10 +16,10 @@ import PyPDF2
 from docx import Document
 
 st.set_page_config(
-    page_title="Semantic Job Search",
-    page_icon="🔍",
+    page_title="Executive Dashboard - Job Search",
+    page_icon="📊",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 st.markdown("""
@@ -383,6 +383,151 @@ st.markdown("""
         border-bottom: 2px solid var(--primary-accent) !important;
         outline: none !important;
     }
+    
+    /* Executive Dashboard Styles */
+    .dashboard-header {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: var(--primary-accent);
+        margin-bottom: 0.5rem;
+        letter-spacing: -0.02em;
+    }
+    
+    .dashboard-subtitle {
+        font-size: 1rem;
+        color: var(--text-secondary);
+        margin-bottom: 2rem;
+    }
+    
+    .metric-card {
+        background-color: var(--bg-container);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border: 1px solid rgba(0, 0, 0, 0.05);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .metric-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+    
+    .metric-value {
+        font-size: 2rem;
+        font-weight: bold;
+        color: var(--primary-accent);
+        margin: 0.5rem 0;
+    }
+    
+    .metric-label {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    .job-table-row {
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    
+    .job-table-row:hover {
+        background-color: var(--bg-container);
+    }
+    
+    .match-score-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.4rem 0.8rem;
+        border-radius: 20px;
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+    
+    .match-score-high {
+        background-color: #4CAF50;
+        color: white;
+    }
+    
+    .match-score-medium {
+        background-color: #FFC107;
+        color: #333;
+    }
+    
+    .match-score-low {
+        background-color: #FF9800;
+        color: white;
+    }
+    
+    .expandable-details {
+        background-color: var(--bg-container);
+        padding: 1.5rem;
+        border-radius: 8px;
+        margin-top: 1rem;
+        border-left: 4px solid var(--primary-accent);
+    }
+    
+    .match-breakdown {
+        display: flex;
+        gap: 2rem;
+        margin: 1rem 0;
+    }
+    
+    .match-type {
+        flex: 1;
+        padding: 1rem;
+        background-color: var(--bg-main);
+        border-radius: 8px;
+    }
+    
+    .match-type-label {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        margin-bottom: 0.5rem;
+    }
+    
+    .match-type-value {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: var(--primary-accent);
+    }
+    
+    /* Sidebar styling */
+    .sidebar-section {
+        margin-bottom: 2rem;
+        padding-bottom: 1.5rem;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    }
+    
+    [data-theme="dark"] .sidebar-section {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    /* Table styling */
+    .dataframe {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    
+    .dataframe th {
+        background-color: var(--bg-container);
+        color: var(--text-primary);
+        font-weight: 600;
+        padding: 1rem;
+        text-align: left;
+        border-bottom: 2px solid var(--primary-accent);
+    }
+    
+    .dataframe td {
+        padding: 1rem;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    
+    [data-theme="dark"] .dataframe td {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -414,6 +559,14 @@ if 'show_profile_editor' not in st.session_state:
     st.session_state.show_profile_editor = False
 if 'use_auto_match' not in st.session_state:
     st.session_state.use_auto_match = False
+if 'expanded_job_index' not in st.session_state:
+    st.session_state.expanded_job_index = None
+if 'industry_filter' not in st.session_state:
+    st.session_state.industry_filter = None
+if 'salary_min' not in st.session_state:
+    st.session_state.salary_min = None
+if 'salary_max' not in st.session_state:
+    st.session_state.salary_max = None
 
 class APIMEmbeddingGenerator:
     def __init__(self, api_key, endpoint):
@@ -625,11 +778,16 @@ IMPORTANT: Return ONLY the JSON object, no markdown code blocks, no additional t
             match_score = float(similarity)
             
             # Extract keywords from job description using AI
+            # Use up to 8000 characters for keyword extraction (enough for most JDs while staying within API limits)
+            job_desc_for_keywords = job_description[:8000] if len(job_description) > 8000 else job_description
+            if len(job_description) > 8000:
+                job_desc_for_keywords += "\n\n[Description truncated for keyword extraction - full description available for matching]"
+            
             keyword_prompt = f"""Extract the most important technical skills, tools, technologies, and qualifications mentioned in this job description. 
 Return ONLY a JSON object with a "keywords" array, no additional text.
 
 Job Description:
-{job_description[:2000]}
+{job_desc_for_keywords}
 
 Return format: {{"keywords": ["keyword1", "keyword2", "keyword3", ...]}}"""
             
@@ -728,11 +886,16 @@ class IndeedScraperAPI:
             benefits = job_data.get('benefits', [])
             attributes = job_data.get('attributes', [])
             
+            # Get full description without truncation
+            full_description = job_data.get('descriptionText', 'No description')
+            # Store full description, but limit to 50000 chars to prevent memory issues
+            description = full_description[:50000] if len(full_description) > 50000 else full_description
+            
             return {
                 'title': job_data.get('title', 'N/A'),
                 'company': job_data.get('companyName', 'N/A'),
                 'location': location,
-                'description': job_data.get('descriptionText', 'No description')[:2000],
+                'description': description,
                 'salary': 'Not specified',
                 'job_type': job_type,
                 'url': job_data.get('jobUrl', '#'),
@@ -785,6 +948,32 @@ class SemanticJobSearch:
             })
         
         return results
+    
+    def calculate_skill_match(self, user_skills, job_skills):
+        """Calculate skill-based match score"""
+        if not user_skills or not job_skills:
+            return 0.0, []
+        
+        # Normalize skills to lowercase for comparison
+        user_skills_lower = [s.lower().strip() for s in str(user_skills).split(',') if s.strip()]
+        job_skills_lower = [s.lower().strip() for s in job_skills if isinstance(s, str) and s.strip()]
+        
+        if not user_skills_lower or not job_skills_lower:
+            return 0.0, []
+        
+        # Find matching skills
+        matched_skills = []
+        for job_skill in job_skills_lower:
+            for user_skill in user_skills_lower:
+                if job_skill in user_skill or user_skill in job_skill:
+                    matched_skills.append(job_skill)
+                    break
+        
+        # Calculate match percentage
+        match_score = len(matched_skills) / len(job_skills_lower) if job_skills_lower else 0.0
+        missing_skills = [s for s in job_skills_lower if s not in matched_skills]
+        
+        return min(match_score, 1.0), missing_skills[:5]  # Cap at 1.0 and limit missing skills
 
 def get_embedding_generator():
     if st.session_state.embedding_gen is None:
@@ -854,8 +1043,21 @@ def display_job_card(result, index):
     col1, col2 = st.columns([4, 1])
     
     with col1:
-        with st.expander("📝 View Full Description"):
-            st.write(job['description'])
+        with st.expander("📝 View Full Description", expanded=False):
+            # Display full description with proper formatting
+            description_text = job['description']
+            if len(description_text) > 10000:
+                st.info(f"📄 Full description ({len(description_text):,} characters)")
+                # Use text area for very long descriptions to allow scrolling
+                st.text_area(
+                    "Job Description",
+                    value=description_text,
+                    height=400,
+                    key=f"desc_{index}",
+                    label_visibility="collapsed"
+                )
+            else:
+                st.write(description_text)
     
     with col2:
         col2a, col2b = st.columns(2)
@@ -1537,6 +1739,397 @@ def display_resume_generator():
                 st.session_state.missing_keywords = missing_keywords
                 st.rerun()
 
+def render_sidebar():
+    """Render sidebar with resume upload and global filters"""
+    with st.sidebar:
+        st.markdown('<h2 style="color: var(--primary-accent); margin-bottom: 1.5rem;">⚙️ Controls</h2>', unsafe_allow_html=True)
+        
+        # Resume Upload Section
+        st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+        st.subheader("📄 Resume Upload")
+        uploaded_file = st.file_uploader(
+            "Upload your resume",
+            type=['pdf', 'docx', 'txt'],
+            help="Supported formats: PDF, DOCX, TXT",
+            key="sidebar_resume_upload"
+        )
+        
+        if uploaded_file is not None:
+            if st.button("🔍 Extract Information", type="primary", use_container_width=True, key="sidebar_extract"):
+                with st.spinner("📖 Reading resume..."):
+                    resume_text = extract_text_from_resume(uploaded_file)
+                    if resume_text:
+                        st.session_state.resume_text = resume_text
+                        st.success(f"✅ Extracted {len(resume_text):,} characters")
+                        
+                        # Extract structured information
+                        with st.spinner("🤖 Extracting profile data..."):
+                            profile_data = extract_profile_from_resume(resume_text)
+                            if profile_data:
+                                st.session_state.user_profile = {
+                                    'name': profile_data.get('name', ''),
+                                    'email': profile_data.get('email', ''),
+                                    'phone': profile_data.get('phone', ''),
+                                    'location': profile_data.get('location', ''),
+                                    'linkedin': profile_data.get('linkedin', ''),
+                                    'portfolio': profile_data.get('portfolio', ''),
+                                    'summary': profile_data.get('summary', ''),
+                                    'experience': profile_data.get('experience', ''),
+                                    'education': profile_data.get('education', ''),
+                                    'skills': profile_data.get('skills', ''),
+                                    'certifications': profile_data.get('certifications', '')
+                                }
+                                st.success("✅ Profile extracted!")
+                                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Global Filters Section
+        st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+        st.subheader("🔍 Global Filters")
+        
+        # Industry filter
+        industry_options = ["All", "Technology", "Finance", "Healthcare", "Education", "Manufacturing", "Retail", "Consulting", "Other"]
+        selected_industry = st.selectbox("Industry", industry_options, key="sidebar_industry")
+        if selected_industry != "All":
+            st.session_state.industry_filter = selected_industry
+        else:
+            st.session_state.industry_filter = None
+        
+        # Salary filter
+        st.write("**Salary Range**")
+        col1, col2 = st.columns(2)
+        with col1:
+            salary_min = st.number_input("Min ($)", min_value=0, value=0, step=10000, key="sidebar_salary_min")
+        with col2:
+            salary_max = st.number_input("Max ($)", min_value=0, value=200000, step=10000, key="sidebar_salary_max")
+        
+        if salary_min > 0 or salary_max > 0:
+            st.session_state.salary_min = salary_min if salary_min > 0 else None
+            st.session_state.salary_max = salary_max if salary_max > 0 else None
+        else:
+            st.session_state.salary_min = None
+            st.session_state.salary_max = None
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Job Search Section
+        st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+        st.subheader("🔎 Job Search")
+        
+        search_query = st.text_input("Keywords", value="software developer", key="sidebar_search_query")
+        location = st.text_input("Location", value="Hong Kong", key="sidebar_location")
+        
+        country_options = {
+            "Hong Kong": "hk",
+            "United States": "us",
+            "United Kingdom": "uk",
+            "Singapore": "sg",
+            "Australia": "au",
+            "Canada": "ca"
+        }
+        country_display = st.selectbox("Country", list(country_options.keys()), key="sidebar_country")
+        country = country_options[country_display]
+        
+        job_type = st.selectbox("Job Type", ["fulltime", "parttime", "contract", "temporary", "internship"], key="sidebar_job_type")
+        max_rows = st.slider("Number of Jobs", 5, 15, 15, 5, key="sidebar_max_rows")
+        
+        fetch_jobs = st.button("🔄 Fetch Jobs", type="primary", use_container_width=True, key="sidebar_fetch")
+        
+        if fetch_jobs:
+            scraper = get_job_scraper()
+            with st.spinner("🔄 Fetching jobs..."):
+                jobs = scraper.search_jobs(search_query, location, max_rows, job_type, country)
+            
+            if jobs:
+                st.session_state.jobs_cache = {
+                    'jobs': jobs,
+                    'count': len(jobs),
+                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'query': search_query
+                }
+                st.success(f"✅ Fetched {len(jobs)} jobs!")
+                st.rerun()
+            else:
+                st.error("❌ No jobs found")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Auto-match button
+        if st.session_state.jobs_cache and st.session_state.jobs_cache.get('jobs'):
+            has_resume = st.session_state.resume_text is not None
+            has_profile = (st.session_state.user_profile.get('summary') or 
+                          st.session_state.user_profile.get('experience') or 
+                          st.session_state.user_profile.get('skills'))
+            profile_complete = has_resume or has_profile
+            
+            if profile_complete:
+                st.markdown("---")
+                if st.button("🎯 Auto-Match Jobs", type="primary", use_container_width=True, key="sidebar_auto_match"):
+                    jobs = st.session_state.jobs_cache['jobs']
+                    embedding_gen = get_embedding_generator()
+                    search_engine = SemanticJobSearch(embedding_gen)
+                    search_engine.index_jobs(jobs)
+                    
+                    if has_resume:
+                        resume_query = st.session_state.resume_text
+                        if st.session_state.user_profile.get('summary'):
+                            profile_data = f"{st.session_state.user_profile.get('summary', '')} {st.session_state.user_profile.get('experience', '')} {st.session_state.user_profile.get('skills', '')}"
+                            resume_query = f"{resume_query} {profile_data}"
+                    else:
+                        resume_query = f"{st.session_state.user_profile.get('summary', '')} {st.session_state.user_profile.get('experience', '')} {st.session_state.user_profile.get('skills', '')} {st.session_state.user_profile.get('education', '')}"
+                    
+                    with st.spinner("🤖 Matching jobs..."):
+                        results = search_engine.search(resume_query, top_k=min(15, len(jobs)))
+                    
+                    # Calculate skill matches for each result
+                    user_skills = st.session_state.user_profile.get('skills', '')
+                    for result in results:
+                        job_skills = result['job'].get('skills', [])
+                        skill_score, missing_skills = search_engine.calculate_skill_match(user_skills, job_skills)
+                        result['skill_match_score'] = skill_score
+                        result['missing_skills'] = missing_skills
+                    
+                    st.session_state.matched_jobs = results
+                    st.session_state.use_auto_match = True
+                    st.rerun()
+
+def display_market_positioning_profile(matched_jobs, user_profile):
+    """Display Market Positioning Profile with metrics"""
+    if not matched_jobs:
+        return
+    
+    st.markdown('<h2 class="dashboard-header">📊 Market Positioning Profile</h2>', unsafe_allow_html=True)
+    
+    # Calculate metrics
+    avg_match = np.mean([r['similarity_score'] for r in matched_jobs])
+    best_match = matched_jobs[0]['similarity_score'] if matched_jobs else 0
+    
+    # Extract salary bands from jobs (if available)
+    salaries = []
+    for result in matched_jobs:
+        salary_str = result['job'].get('salary', '')
+        # Try to extract numeric salary (simplified)
+        if salary_str and salary_str != 'Not specified':
+            # This is a simplified extraction - you might want to improve this
+            pass
+    
+    # Calculate skill gaps
+    user_skills = user_profile.get('skills', '')
+    all_job_skills = []
+    for result in matched_jobs:
+        all_job_skills.extend(result['job'].get('skills', []))
+    
+    # Find missing skills
+    user_skills_list = [s.lower().strip() for s in str(user_skills).split(',') if s.strip()]
+    missing_skills = []
+    for job_skill in all_job_skills:
+        if isinstance(job_skill, str):
+            job_skill_lower = job_skill.lower().strip()
+            if not any(us in job_skill_lower or job_skill_lower in us for us in user_skills_list):
+                if job_skill_lower not in [ms.lower() for ms in missing_skills]:
+                    missing_skills.append(job_skill)
+    
+    # Display metrics in cards
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+        <div class="metric-card">
+            <div class="metric-label">Salary Band</div>
+            <div class="metric-value">Market Rate</div>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.5rem;">
+                Based on {count} opportunities
+            </p>
+        </div>
+        """.format(count=len(matched_jobs)), unsafe_allow_html=True)
+    
+    with col2:
+        skill_gap_count = len(missing_skills[:5])
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Skill Gaps</div>
+            <div class="metric-value">{skill_gap_count}</div>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.5rem;">
+                Top missing skills identified
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("""
+        <div class="metric-card">
+            <div class="metric-label">Recommended Accreditations</div>
+            <div class="metric-value">3-5</div>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.5rem;">
+                Based on job requirements
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Show missing skills
+    if missing_skills:
+        st.markdown("---")
+        st.subheader("🔍 Top Missing Skills")
+        skills_display = ", ".join(missing_skills[:10])
+        st.info(f"Consider adding: **{skills_display}**")
+
+def display_ranked_matches_table(matched_jobs, user_profile):
+    """Display Smart Ranked Matches Table with expandable details"""
+    if not matched_jobs:
+        return
+    
+    st.markdown("---")
+    st.markdown('<h2 class="dashboard-header">🎯 Smart Ranked Matches</h2>', unsafe_allow_html=True)
+    
+    # Ensure all results have skill match scores calculated
+    user_skills = user_profile.get('skills', '')
+    
+    # Helper function to calculate skill match (same logic as SemanticJobSearch.calculate_skill_match)
+    def calc_skill_match(user_skills_str, job_skills_list):
+        if not user_skills_str or not job_skills_list:
+            return 0.0, []
+        user_skills_lower = [s.lower().strip() for s in str(user_skills_str).split(',') if s.strip()]
+        job_skills_lower = [s.lower().strip() for s in job_skills_list if isinstance(s, str) and s.strip()]
+        if not user_skills_lower or not job_skills_lower:
+            return 0.0, []
+        matched_skills = []
+        for job_skill in job_skills_lower:
+            for user_skill in user_skills_lower:
+                if job_skill in user_skill or user_skill in job_skill:
+                    matched_skills.append(job_skill)
+                    break
+        match_score = len(matched_skills) / len(job_skills_lower) if job_skills_lower else 0.0
+        missing_skills = [s for s in job_skills_lower if s not in matched_skills]
+        return min(match_score, 1.0), missing_skills[:5]
+    
+    for result in matched_jobs:
+        if 'skill_match_score' not in result:
+            job_skills = result['job'].get('skills', [])
+            skill_score, missing_skills = calc_skill_match(user_skills, job_skills)
+            result['skill_match_score'] = skill_score
+            result['missing_skills'] = missing_skills
+    
+    # Create table data
+    table_data = []
+    for i, result in enumerate(matched_jobs):
+        job = result['job']
+        semantic_score = result['similarity_score']
+        skill_score = result.get('skill_match_score', 0.0)
+        
+        # Determine match score badge class
+        overall_score = (semantic_score + skill_score) / 2
+        if overall_score >= 0.7:
+            badge_class = "match-score-high"
+        elif overall_score >= 0.5:
+            badge_class = "match-score-medium"
+        else:
+            badge_class = "match-score-low"
+        
+        table_data.append({
+            'Rank': i + 1,
+            'Job Title': job['title'],
+            'Company': job['company'],
+            'Location': job['location'],
+            'Match Score': f"{overall_score:.0%}",
+            'Semantic': f"{semantic_score:.0%}",
+            'Skill': f"{skill_score:.0%}",
+            'index': i
+        })
+    
+    # Display as expandable rows
+    for i, result in enumerate(matched_jobs):
+        job = result['job']
+        semantic_score = result['similarity_score']
+        skill_score = result.get('skill_match_score', 0.0)
+        missing_skills = result.get('missing_skills', [])
+        overall_score = (semantic_score + skill_score) / 2
+        
+        # Determine badge class
+        if overall_score >= 0.7:
+            badge_class = "match-score-high"
+        elif overall_score >= 0.5:
+            badge_class = "match-score-medium"
+        else:
+            badge_class = "match-score-low"
+        
+        # Create expandable row
+        with st.expander(
+            f"#{i+1} {job['title']} at {job['company']} - {overall_score:.0%} Match",
+            expanded=(st.session_state.expanded_job_index == i)
+        ):
+            # Match breakdown
+            st.markdown("""
+            <div class="expandable-details">
+                <div class="match-breakdown">
+                    <div class="match-type">
+                        <div class="match-type-label">Semantic Match</div>
+                        <div class="match-type-value">{semantic:.0%}</div>
+                    </div>
+                    <div class="match-type">
+                        <div class="match-type-label">Skill Match</div>
+                        <div class="match-type-value">{skill:.0%}</div>
+                    </div>
+                </div>
+            </div>
+            """.format(semantic=semantic_score, skill=skill_score), unsafe_allow_html=True)
+            
+            # Why this job is a fit
+            st.markdown("### Why This Job is a Fit")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**Semantic Match:**")
+                if semantic_score >= 0.7:
+                    st.success(f"Strong semantic alignment ({semantic_score:.0%}) - Your experience and the job description are highly compatible.")
+                elif semantic_score >= 0.5:
+                    st.info(f"Good semantic alignment ({semantic_score:.0%}) - Your background matches well with the role.")
+                else:
+                    st.warning(f"Moderate semantic alignment ({semantic_score:.0%}) - Some overlap but may need more tailoring.")
+            
+            with col2:
+                st.write("**Skill Match:**")
+                if skill_score >= 0.7:
+                    st.success(f"Strong skill match ({skill_score:.0%}) - You have most required skills.")
+                elif skill_score >= 0.5:
+                    st.info(f"Good skill match ({skill_score:.0%}) - You have many required skills.")
+                else:
+                    st.warning(f"Moderate skill match ({skill_score:.0%}) - Consider developing missing skills.")
+                    if missing_skills:
+                        st.caption(f"Missing: {', '.join(missing_skills[:3])}")
+            
+            # Job details
+            st.markdown("---")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.write(f"**Location:** {job['location']}")
+                st.write(f"**Type:** {job['job_type']}")
+            with col2:
+                st.write(f"**Salary:** {job['salary']}")
+                st.write(f"**Posted:** {job['posted_date']}")
+            with col3:
+                if job.get('company_rating', 0) > 0:
+                    stars = "⭐" * int(job['company_rating'])
+                    st.write(f"**Rating:** {stars} ({job['company_rating']})")
+            
+            # Action buttons
+            st.markdown("---")
+            col1, col2, col3 = st.columns([2, 1, 1])
+            with col1:
+                if st.button("📄 Tailor Resume", key=f"tailor_{i}", type="primary", use_container_width=True):
+                    st.session_state.selected_job = job
+                    st.session_state.show_resume_generator = True
+                    st.rerun()
+            with col2:
+                if job['url'] != '#':
+                    st.link_button("Apply →", job['url'], use_container_width=True)
+            with col3:
+                with st.expander("📝 Full Description"):
+                    description_text = job['description']
+                    if len(description_text) > 10000:
+                        st.text_area("", value=description_text, height=300, key=f"full_desc_{i}", label_visibility="collapsed")
+                    else:
+                        st.write(description_text)
+
 def format_resume_as_text(resume_data):
     """Format structured resume JSON as plain text"""
     text = []
@@ -1624,238 +2217,30 @@ def main():
         display_resume_generator()
         return
     
-    st.markdown('<h1 class="main-header">🔍 Semantic Job Search & Resume Generator</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">AI-powered job matching with personalized resume generation</p>', unsafe_allow_html=True)
+    # Render sidebar with controls
+    render_sidebar()
     
-    # Step 1: Profile Setup Section
-    st.markdown("---")
-    st.markdown("""
-    <div style="display: flex; align-items: center; margin-bottom: 1rem;">
-        <span class="step-marker">①</span>
-        <h2 style="margin: 0; color: var(--text-primary);">Set Up Your Profile</h2>
-    </div>
-    """, unsafe_allow_html=True)
-    st.caption("Upload your resume or fill in your profile information to get started")
+    # Main dashboard area
+    st.markdown('<h1 class="dashboard-header">📊 Executive Dashboard</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="dashboard-subtitle">Data-First & Professional Job Search & Market Analysis</p>', unsafe_allow_html=True)
     
-    # Check if profile is complete
-    has_resume = st.session_state.resume_text is not None
-    has_profile = (st.session_state.user_profile.get('summary') or 
-                  st.session_state.user_profile.get('experience') or 
-                  st.session_state.user_profile.get('skills'))
-    profile_complete = has_resume or has_profile
-    
-    if profile_complete:
-        st.markdown('<p class="profile-ready">Profile Ready</p>', unsafe_allow_html=True)
-        st.caption("You can update it below or proceed to job search.")
-        if st.button("✏️ Edit Profile", use_container_width=False):
-            st.session_state.show_profile_editor = not st.session_state.get('show_profile_editor', False)
-            st.rerun()
-    else:
-        st.info("👆 Please set up your profile first to enable automatic job matching")
-    
-    # Show profile editor if requested or if profile is incomplete
-    if st.session_state.get('show_profile_editor', False) or not profile_complete:
-        with st.expander("👤 Your Profile", expanded=not profile_complete):
-            display_user_profile()
-    
-    st.markdown("---")
-    
-    # Step 2: Fetch Jobs Section
-    st.markdown("""
-    <div style="display: flex; align-items: center; margin-bottom: 1rem;">
-        <span class="step-marker">②</span>
-        <h2 style="margin: 0; color: var(--text-primary);">Find Jobs</h2>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Job search settings in main area (not sidebar)
-    st.subheader("Search Settings")
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        search_query = st.text_input("🔎 Keywords", value="software developer", key="main_search_query")
-    with col2:
-        location = st.text_input("📍 Location", value="Hong Kong", key="main_location")
-    with col3:
-        country_options = {
-            "Hong Kong": "hk",
-            "United States": "us",
-            "United Kingdom": "uk",
-            "Singapore": "sg",
-            "Australia": "au",
-            "Canada": "ca"
-        }
-        country_display = st.selectbox("🌍 Country", list(country_options.keys()), key="main_country")
-        country = country_options[country_display]
-    with col4:
-        job_type = st.selectbox("⏰ Type", ["fulltime", "parttime", "contract", "temporary", "internship"], key="main_job_type")
-    
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        max_rows = st.slider("📊 Number of Jobs to Fetch", 5, 15, 15, 5, key="main_max_rows")
-    with col2:
-        st.write("")
-        st.write("")
-        fetch_jobs = st.button("🔄 Fetch Jobs", type="primary", use_container_width=True, key="main_fetch")
-    
-    # Show cache info if available
-    if st.session_state.jobs_cache:
-        cache_info = st.session_state.jobs_cache
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("📦 Cached Jobs", cache_info.get('count', 0))
-        with col2:
-            st.caption(f"🕒 Last updated: {cache_info.get('timestamp', 'Never')}")
-        with col3:
-            if st.button("🗑️ Clear Cache", use_container_width=True):
-                st.session_state.jobs_cache = {}
-                st.session_state.matched_jobs = []
-                st.rerun()
-    
-    # Fetch jobs
-    if fetch_jobs:
-        scraper = get_job_scraper()
-        with st.spinner("🔄 Fetching jobs from Indeed..."):
-            jobs = scraper.search_jobs(search_query, location, max_rows, job_type, country)
-        
-        if jobs:
-            st.session_state.jobs_cache = {
-                'jobs': jobs,
-                'count': len(jobs),
-                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                'query': search_query
-            }
-            st.success(f"✅ Fetched {len(jobs)} jobs!")
-            st.balloons()
-            time.sleep(1)
-            st.rerun()
-        else:
-            st.error("❌ No jobs found. Try adjusting your search criteria.")
-    
-    # Step 3: Job Matching/Search Section
-    if not st.session_state.jobs_cache:
-        st.info("👆 Click 'Fetch Jobs' above to start searching")
+    # Check if we have matched jobs to display
+    if not st.session_state.matched_jobs:
+        # Show empty state
+        st.info("👆 Upload your resume and fetch jobs using the sidebar controls, then click 'Auto-Match Jobs' to see your market positioning and ranked opportunities.")
         return
     
-    jobs = st.session_state.jobs_cache['jobs']
-    st.markdown("---")
-    st.markdown("""
-    <div style="display: flex; align-items: center; margin-bottom: 1rem;">
-        <span class="step-marker">③</span>
-        <h2 style="margin: 0; color: var(--text-primary);">Match or Search Jobs</h2>
-    </div>
-    """, unsafe_allow_html=True)
+    # Display Market Positioning Profile
+    display_market_positioning_profile(
+        st.session_state.matched_jobs,
+        st.session_state.user_profile
+    )
     
-    # Create two columns for automatic matching vs manual search
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("""
-        <div class="step3-container">
-        """, unsafe_allow_html=True)
-        st.subheader("🤖 Automatic Matching")
-        if profile_complete:
-            st.info("💡 We'll find the best matching jobs based on your profile!")
-            
-            col1a, col1b = st.columns(2)
-            with col1a:
-                num_results_auto = st.number_input("Results", 1, len(jobs), min(10, len(jobs)), key="auto_results")
-            with col1b:
-                min_score_percent = st.slider("Min score (%)", 0, 100, 0, 5, key="auto_min_score")
-                min_score_auto = min_score_percent / 100.0
-            
-            match_button = st.button("🎯 Find Best Matches", type="primary", use_container_width=True, key="auto_match")
-            
-            if match_button:
-                embedding_gen = get_embedding_generator()
-                search_engine = SemanticJobSearch(embedding_gen)
-                search_engine.index_jobs(jobs)
-                
-                # Create a comprehensive query from resume text or profile
-                if has_resume:
-                    resume_query = st.session_state.resume_text
-                    # If we have structured profile, enhance the query
-                    if st.session_state.user_profile.get('summary'):
-                        profile_data = f"{st.session_state.user_profile.get('summary', '')} {st.session_state.user_profile.get('experience', '')} {st.session_state.user_profile.get('skills', '')}"
-                        resume_query = f"{resume_query} {profile_data}"
-                else:
-                    # Use profile data to create query
-                    resume_query = f"{st.session_state.user_profile.get('summary', '')} {st.session_state.user_profile.get('experience', '')} {st.session_state.user_profile.get('skills', '')} {st.session_state.user_profile.get('education', '')}"
-                
-                with st.spinner("🤖 Analyzing your profile and matching jobs..."):
-                    results = search_engine.search(resume_query, top_k=num_results_auto)
-                
-                results = [r for r in results if r['similarity_score'] >= min_score_auto]
-                st.session_state.matched_jobs = results
-                st.session_state.use_auto_match = True
-                st.rerun()
-        else:
-            st.warning("⚠️ Complete your profile first to use automatic matching")
-            st.info("💡 Go to Step 1 above to upload your resume or fill in your profile")
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown("""
-        <div class="step3-container">
-        """, unsafe_allow_html=True)
-        st.subheader("🔍 Manual Search")
-        st.info("💡 Describe your ideal job and we'll find matches!")
-        
-        user_query = st.text_area(
-            "Describe your ideal job",
-            height=100,
-            placeholder="Python developer with ML experience...",
-            key="manual_search"
-        )
-        
-        col2a, col2b = st.columns(2)
-        with col2a:
-            num_results = st.number_input("Results", 1, len(jobs), min(10, len(jobs)), key="manual_results")
-        with col2b:
-            min_score_percent = st.slider("Min score (%)", 0, 100, 0, 5, key="manual_min_score")
-            min_score = min_score_percent / 100.0
-        
-        search_button = st.button("🔍 Search", type="primary", use_container_width=True, key="manual_search_btn")
-        
-        if search_button and user_query:
-            embedding_gen = get_embedding_generator()
-            search_engine = SemanticJobSearch(embedding_gen)
-            search_engine.index_jobs(jobs)
-            
-            with st.spinner("🤖 Analyzing and matching jobs..."):
-                results = search_engine.search(user_query, top_k=num_results)
-            
-            results = [r for r in results if r['similarity_score'] >= min_score]
-            st.session_state.matched_jobs = results
-            st.session_state.use_auto_match = False
-            st.rerun()
-        elif search_button:
-            st.warning("⚠️ Please enter a search query")
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Display matched jobs
-    if st.session_state.matched_jobs:
-        st.markdown("---")
-        st.header("📋 Matching Jobs")
-        
-        results = st.session_state.matched_jobs
-        
-        # Show metrics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Average Match", f"{np.mean([r['similarity_score'] for r in results]):.1%}")
-        with col2:
-            st.metric("Best Match", f"{results[0]['similarity_score']:.1%}")
-        with col3:
-            st.metric("Total Jobs", len(results))
-        
-        st.markdown("---")
-        
-        # Display job cards
-        for i, result in enumerate(results, 1):
-            display_job_card(result, i)
-    else:
-        st.info("👆 Use automatic matching or manual search above to find jobs")
+    # Display Smart Ranked Matches Table
+    display_ranked_matches_table(
+        st.session_state.matched_jobs,
+        st.session_state.user_profile
+    )
 
 if __name__ == "__main__":
     main()
