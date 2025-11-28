@@ -1,0 +1,11 @@
+[theme]
+# Use "light" as the base for minimalism, but let the OS dictate dark/light preference
+base = "light"
+
+# Defining the Primary Color for buttons/links in Light Mode
+primaryColor = "#00796B"
+# Defining the background/text colors ensures elegance vs. default harsh contrast
+backgroundColor = "#FAFAFA"
+secondaryBackgroundColor = "#F0F0F0"
+textColor = "#333333"
+font = "sans serif"
