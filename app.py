@@ -1742,6 +1742,8 @@ def extract_salary_from_text(text):
     
     try:
         text_gen = get_text_generator()
+        if text_gen is None:
+            return None, None
         
         prompt = f"""Extract salary information from this job description text. 
 Look for salary ranges, amounts, and compensation details. Normalize everything to monthly HKD (Hong Kong Dollars).
@@ -2052,6 +2054,11 @@ def extract_profile_from_resume(resume_text):
     """Use Azure OpenAI to extract structured profile information from resume text with two-pass self-correction"""
     try:
         text_gen = get_text_generator()
+        
+        # Check if text generator was initialized successfully
+        if text_gen is None:
+            st.error("⚠️ Azure OpenAI is not configured. Please configure AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT in your Streamlit secrets.")
+            return None
         
         # FIRST PASS: Initial extraction
         prompt_pass1 = f"""You are an expert at parsing resumes. Extract structured information from the following resume text.
@@ -2714,6 +2721,9 @@ def display_resume_generator():
     if st.button("🚀 Generate Tailored Resume", type="primary", use_container_width=True):
         with st.spinner("🤖 Creating your personalized resume using AI..."):
             text_gen = get_text_generator()
+            if text_gen is None:
+                st.error("⚠️ Azure OpenAI is not configured. Please configure AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT in your Streamlit secrets.")
+                return
             # Get raw resume text if available
             raw_resume_text = st.session_state.get('resume_text')
             resume_data = text_gen.generate_resume(
@@ -3118,7 +3128,10 @@ def display_market_positioning_profile(matched_jobs, user_profile):
     # Metric 2: Target Role Seniority
     job_titles = [r['job'].get('title', '') for r in matched_jobs[:10] if r['job'].get('title')]
     text_gen = get_text_generator()
-    seniority = text_gen.analyze_seniority_level(job_titles)
+    if text_gen is None:
+        seniority = "Unknown"
+    else:
+        seniority = text_gen.analyze_seniority_level(job_titles)
     
     # Metric 3: Top Skill Gap
     user_skills = user_profile.get('skills', '')
@@ -3427,7 +3440,10 @@ def display_match_breakdown(matched_jobs, user_profile):
     
     # Generate AI recruiter note
     text_gen = get_text_generator()
-    recruiter_note = text_gen.generate_recruiter_note(job, user_profile, semantic_score, skill_score)
+    if text_gen is None:
+        recruiter_note = "AI analysis unavailable. Please configure Azure OpenAI credentials."
+    else:
+        recruiter_note = text_gen.generate_recruiter_note(job, user_profile, semantic_score, skill_score)
     
     # Expander title
     expander_title = f"Deep Dive: {job['title']} at {job['company']}"
