@@ -3,6 +3,7 @@ import { Menu } from 'lucide-react';
 import Sidebar from './Sidebar';
 import MarketPositionCards from './MarketPositionCards';
 import JobMatchTable from './JobMatchTable';
+import JobList from './JobList';
 import ToastContainer from './Toast';
 import LoadingOverlay from './LoadingSpinner';
 import { useToast } from '../hooks/useToast';
@@ -15,6 +16,9 @@ const DashboardLayout = () => {
   const [profileData, setProfileData] = useState(null);
   const [marketPositioning, setMarketPositioning] = useState(null);
   const [jobMatches, setJobMatches] = useState(null);
+  const [rawJobs, setRawJobs] = useState(null);
+  const [hasFetchedJobs, setHasFetchedJobs] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const { toasts, removeToast, success, error, warning, info } = useToast();
 
   useEffect(() => {
@@ -35,30 +39,62 @@ const DashboardLayout = () => {
     }
   };
 
-  const handleAnalyze = async (filters) => {
+  const handleFetchJobs = async (filters) => {
     if (!profileData) {
       warning('Please upload a resume first');
       return;
     }
 
     setLoading(true);
+    setIsAnalyzing(false);
     try {
-      // Get market positioning
+      // Step 1: Fetch jobs from Indeed (no embeddings)
+      const jobsResult = await ApiService.fetchJobs(filters);
+      const jobs = Array.isArray(jobsResult) ? jobsResult : (jobsResult?.jobs || []);
+      setRawJobs(jobs);
+      setHasFetchedJobs(true);
+
+      // Get market positioning based on resume only (not job list)
       const positioning = await ApiService.getMarketPositioning(profileData, filters);
       setMarketPositioning(positioning);
 
-      // Get job matches
-      const matches = await ApiService.getJobMatches(profileData, filters);
+      // Clear ranked matches until user clicks "Analyze and Rank"
+      setJobMatches(null);
+
+      success(`Fetched ${jobs.length} jobs from Indeed! Review them below, then click "Analyze and Rank" for AI-powered matching.`);
+    } catch (err) {
+      console.error('Job fetch error:', err);
+      error(err.message || 'Failed to fetch jobs. Please try again.');
+      setRawJobs(null);
+      setHasFetchedJobs(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAnalyze = async (filters) => {
+    if (!profileData) {
+      warning('Please upload a resume first');
+      return;
+    }
+
+    if (!hasFetchedJobs || !rawJobs || rawJobs.length === 0) {
+      warning('Please fetch jobs first using "Fetch Market Jobs" button');
+      return;
+    }
+
+    setLoading(true);
+    setIsAnalyzing(true);
+    try {
+      // Step 2: Expensive AI processing - semantic indexing, search, and ranking
+      const matches = await ApiService.getJobMatches(profileData, filters, 15);
       // Handle both { jobs: [...] } and [...] formats
       setJobMatches(Array.isArray(matches) ? matches : (matches?.jobs || []));
 
-      success('Analysis complete! Your market positioning and job matches are ready.');
+      success('Analysis complete! Top 15 ranked matches are ready.');
     } catch (err) {
       console.error('Analysis error:', err);
       error(err.message || 'Analysis failed. Please try again.');
-      
-      // Fallback to mock data on error
-      setMarketPositioning(null);
       setJobMatches(null);
     } finally {
       setLoading(false);
@@ -111,6 +147,7 @@ const DashboardLayout = () => {
           onClose={() => setSidebarOpen(false)}
           isMobile={isMobile}
           onFileUploaded={handleFileUploaded}
+          onFetchJobs={handleFetchJobs}
           onAnalyze={handleAnalyze}
           toast={{ success, error, warning, info }}
         />
@@ -133,13 +170,33 @@ const DashboardLayout = () => {
             {/* Market Positioning Cards */}
             <MarketPositionCards data={marketPositioning} />
 
-            {/* Job Matches Table */}
-            <JobMatchTable
-              jobs={jobMatches}
-              loading={loading}
-              onTailorResume={handleTailorResume}
-              toast={{ success, error, warning, info }}
-            />
+            {/* Raw Job List (Step 1) */}
+            {hasFetchedJobs && rawJobs && (
+              <div className="mb-8">
+                <JobList jobs={rawJobs} loading={loading} />
+              </div>
+            )}
+
+            {/* Ranked Job Matches Table (Step 2) */}
+            {jobMatches && jobMatches.length > 0 && (
+              <div className="mb-8">
+                <JobMatchTable
+                  jobs={jobMatches}
+                  loading={loading}
+                  onTailorResume={handleTailorResume}
+                  toast={{ success, error, warning, info }}
+                />
+              </div>
+            )}
+
+            {/* Empty State */}
+            {!hasFetchedJobs && !jobMatches && (
+              <div className="card p-12 bg-bg-card dark:bg-dark-bg-card border-card text-center">
+                <p className="text-text-muted dark:text-dark-text-secondary text-lg">
+                  Upload your resume and click "Fetch Market Jobs" to get started.
+                </p>
+              </div>
+            )}
           </div>
         </main>
       </div>
@@ -148,7 +205,11 @@ const DashboardLayout = () => {
       <ToastContainer toasts={toasts} onRemove={removeToast} />
 
       {/* Loading Overlay */}
-      {loading && <LoadingOverlay message="Analyzing your profile..." />}
+      {loading && (
+        <LoadingOverlay 
+          message={isAnalyzing ? "Analyzing and ranking jobs..." : "Fetching jobs from Indeed..."} 
+        />
+      )}
     </div>
   );
 };

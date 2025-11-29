@@ -191,6 +191,41 @@ class ApiService {
 
     return response.json();
   }
+
+  /**
+   * Fetch jobs from Indeed (simple fetch, no embeddings)
+   */
+  async fetchJobs(filters) {
+    if (this._useMock()) {
+      return mockApiService.fetchJobs(filters);
+    }
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+    if (config.apiKeys.backend.apiKey) {
+      headers['X-API-Key'] = config.apiKeys.backend.apiKey;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/jobs/fetch`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        keywords: filters.keywords || '',
+        location: filters.location || 'Hong Kong',
+        jobType: filters.jobType || 'fulltime',
+        numJobs: filters.numJobs || 25,
+        industries: filters.industries || [],
+        minSalary: filters.minSalary,
+        maxSalary: filters.maxSalary,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Job fetching failed: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
 }
 
 export default new ApiService();
