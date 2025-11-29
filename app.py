@@ -3488,31 +3488,143 @@ Return ONLY valid JSON."""
                                 result['skill_match_score'] = skill_score
                                 result['missing_skills'] = missing_skills
                             
+                            # Sort results by skill_match_score (highest to lowest)
+                            results.sort(key=lambda x: x.get('skill_match_score', 0.0), reverse=True)
+                            
                             st.session_state.matched_jobs = results
                             st.session_state.dashboard_ready = True
                             st.rerun()
                         else:
                             st.error("❌ No jobs found. Please try different filters.")
         
-        # Token Usage Display
-        st.markdown("---")
-        st.markdown("### 📊 API Usage")
-        token_tracker = get_token_tracker()
-        usage_summary = token_tracker.get_summary()
+        # Skill Matching Calculation Matrix
+        display_skill_matching_matrix(st.session_state.user_profile)
+
+def display_skill_matching_matrix(user_profile):
+    """Display skill matching calculation matrix to help users understand ranking"""
+    st.markdown("---")
+    st.markdown("### 📊 How Job Ranking Works")
+    
+    user_skills = user_profile.get('skills', '') if user_profile else ''
+    
+    if not user_skills:
+        st.info("💡 **Skill-Based Ranking**: Jobs are ranked purely by how many required skills you match. Upload your profile to see your skills analyzed.")
+        return
+    
+    # Parse user skills
+    user_skills_list = [s.strip() for s in str(user_skills).split(',') if s.strip()]
+    
+    if not user_skills_list:
+        st.info("💡 **Skill-Based Ranking**: Jobs are ranked purely by how many required skills you match.")
+        return
+    
+    # Show user's skills
+    st.markdown("#### Your Skills")
+    skills_display = ", ".join(user_skills_list[:10])
+    if len(user_skills_list) > 10:
+        skills_display += f" (+{len(user_skills_list) - 10} more)"
+    st.markdown(f"**{len(user_skills_list)} skills identified:** {skills_display}")
+    
+    st.markdown("---")
+    
+    # Explanation of calculation
+    st.markdown("#### Ranking Formula")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.markdown("""
+        **Skill Match Score =**
         
-        if usage_summary['total_tokens'] > 0:
-            st.metric("Total Tokens", f"{usage_summary['total_tokens']:,}")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.caption(f"Embeddings: {usage_summary['embedding_tokens']:,}")
-            with col2:
-                st.caption(f"Completions: {usage_summary['prompt_tokens'] + usage_summary['completion_tokens']:,}")
-            st.metric("Estimated Cost", f"${usage_summary['estimated_cost_usd']:.4f}")
-            if st.button("🔄 Reset Counter", use_container_width=True):
-                token_tracker.reset()
-                st.rerun()
-        else:
-            st.caption("No API calls made yet in this session")
+        ```
+        Matched Skills
+        ──────────────
+        Required Skills
+        ```
+        
+        **Example:**
+        - Job requires: Python, SQL, React, Docker
+        - You have: Python, SQL, React
+        - **Score: 3/4 = 75%**
+        """)
+    
+    with col2:
+        st.markdown("""
+        **Ranking Logic:**
+        
+        1. ✅ Jobs are fetched from job boards
+        2. 🔍 Your skills are matched against each job's required skills
+        3. 📊 Jobs are sorted by skill match score (highest first)
+        4. 🎯 Top matches appear at the top of the list
+        
+        **Why this approach?**
+        - Transparent: You see exactly why jobs rank high
+        - Objective: Based on concrete skill requirements
+        - Actionable: Shows which skills to learn
+        """)
+    
+    st.markdown("---")
+    
+    # Show matching method
+    st.markdown("#### Matching Method")
+    
+    method_col1, method_col2 = st.columns(2)
+    
+    with method_col1:
+        st.markdown("""
+        **Semantic Matching** (Primary)
+        - Uses AI embeddings to understand skill similarity
+        - Recognizes related skills (e.g., "JavaScript" ≈ "JS")
+        - Handles variations and synonyms
+        - Threshold: 70% similarity required
+        """)
+    
+    with method_col2:
+        st.markdown("""
+        **String Matching** (Fallback)
+        - Used when semantic matching unavailable
+        - Direct text comparison
+        - Case-insensitive matching
+        - Handles partial matches
+        """)
+    
+    # Show example calculation if we have matched jobs
+    if 'matched_jobs' in st.session_state and st.session_state.matched_jobs:
+        st.markdown("---")
+        st.markdown("#### Example: Top Match Breakdown")
+        
+        top_match = st.session_state.matched_jobs[0] if st.session_state.matched_jobs else None
+        if top_match:
+            job = top_match.get('job', {})
+            job_skills = job.get('skills', [])
+            skill_score = top_match.get('skill_match_score', 0.0)
+            matched_count = int(skill_score * len(job_skills)) if job_skills else 0
+            
+            if job_skills:
+                st.markdown(f"**{job.get('title', 'Job')} at {job.get('company', 'Company')}**")
+                st.markdown(f"**Match Score: {int(skill_score * 100)}%** ({matched_count}/{len(job_skills)} skills matched)")
+                
+                # Show which skills matched
+                job_skills_lower = [s.lower().strip() for s in job_skills if isinstance(s, str)]
+                user_skills_lower = [s.lower().strip() for s in user_skills_list]
+                
+                matched_skills_list = []
+                missing_skills_list = []
+                
+                for js in job_skills_lower:
+                    matched = False
+                    for us in user_skills_lower:
+                        if js in us or us in js:
+                            matched_skills_list.append(js)
+                            matched = True
+                            break
+                    if not matched:
+                        missing_skills_list.append(js)
+                
+                if matched_skills_list:
+                    st.success(f"✅ **Matched Skills:** {', '.join(matched_skills_list[:5])}")
+                if missing_skills_list:
+                    st.warning(f"⚠️ **Missing Skills:** {', '.join(missing_skills_list[:5])}")
 
 def display_market_positioning_profile(matched_jobs, user_profile):
     """Display Market Positioning Profile with 4 key metrics"""
@@ -3722,6 +3834,9 @@ def display_refine_results_section(matched_jobs, user_profile):
                         result['skill_match_score'] = skill_score
                         result['missing_skills'] = missing_skills
                     
+                    # Sort results by skill_match_score (highest to lowest)
+                    results.sort(key=lambda x: x.get('skill_match_score', 0.0), reverse=True)
+                    
                     st.session_state.matched_jobs = results
                     st.session_state.dashboard_ready = True
                     st.rerun()
@@ -3764,13 +3879,17 @@ def display_ranked_matches_table(matched_jobs, user_profile):
             result['skill_match_score'] = skill_score
             result['missing_skills'] = missing_skills
     
+    # Sort matched_jobs by skill_match_score (highest to lowest)
+    matched_jobs.sort(key=lambda x: x.get('skill_match_score', 0.0), reverse=True)
+    
     # Create DataFrame
     table_data = []
     for i, result in enumerate(matched_jobs):
         job = result['job']
         semantic_score = result['similarity_score']
         skill_score = result.get('skill_match_score', 0.0)
-        overall_score = (semantic_score + skill_score) / 2
+        # Use skill_score as the primary match score
+        match_score = skill_score
         
         # Get key matching skills (first 3-4 skills from job that user has)
         job_skills = job.get('skills', [])
@@ -3788,7 +3907,7 @@ def display_ranked_matches_table(matched_jobs, user_profile):
         missing_critical_skill = missing_critical[0] if missing_critical else "None"
         
         table_data.append({
-            'Match Score': int(overall_score * 100),
+            'Match Score': int(match_score * 100),
             'Job Title': job['title'],
             'Company': job['company'],
             'Location': job['location'],
@@ -3802,8 +3921,8 @@ def display_ranked_matches_table(matched_jobs, user_profile):
     # Configure column display
     column_config = {
         'Match Score': st.column_config.ProgressColumn(
-            'AI Match Score',
-            help='Overall match percentage',
+            'Skill Match Score',
+            help='Percentage of required skills you match (jobs ranked by this score)',
             min_value=0,
             max_value=100,
             format='%d%%'
@@ -3896,11 +4015,11 @@ def display_match_breakdown(matched_jobs, user_profile):
             
             # Score breakdown
             st.markdown(f"""
-            **Semantic Score:** {semantic_score:.0%}  
-            Your experience contextually aligns closely with role requirements.
+            **🎯 Match Score (Ranking Factor):** {skill_score:.0%}  
+            This is how jobs are ranked. Based on skill overlap: {matched_skills_count}/{total_required} required skills matched.
             
-            **Skill Overlap:** {skill_overlap_pct:.0f}%  
-            You have {matched_skills_count}/{total_required} required core skills.
+            **📊 Contextual Alignment:** {semantic_score:.0%}  
+            Your experience contextually aligns with role requirements (informational only).
             """)
             
             # Recruiter Note (AI-generated)
