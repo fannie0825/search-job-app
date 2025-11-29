@@ -2113,7 +2113,8 @@ Important:
                 st.error("🚫 Rate limit reached for profile extraction. Please wait a few minutes and try again.")
             else:
                 error_detail = response_pass1.text[:200] if response_pass1 and response_pass1.text else "No error details"
-                st.error(f"API Error: {response_pass1.status_code if response_pass1 else 'Unknown'} - {error_detail}")
+                endpoint_info = f"Endpoint: {text_gen.url.split('/deployments')[0]}" if text_gen else "Endpoint: Not configured"
+                st.error(f"API Error: {response_pass1.status_code if response_pass1 else 'Unknown'} - {error_detail}\n\n{endpoint_info}")
             return None
         
         result_pass1 = response_pass1.json()
@@ -2385,6 +2386,9 @@ def render_structured_resume_editor(resume_data):
         if st.button("✨ Refine with AI", key='refine_summary', use_container_width=True, help="Use AI to improve this section"):
             with st.spinner("🤖 Refining summary..."):
                 text_gen = get_text_generator()
+                if text_gen is None:
+                    st.error("⚠️ Azure OpenAI is not configured. Please configure AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT in your Streamlit secrets.")
+                    return
                 refinement_prompt = f"""Improve this professional summary. Make it more impactful, quantified, and tailored. Keep it concise (2-3 sentences).
 
 Current Summary:
@@ -2454,6 +2458,9 @@ Return ONLY the improved summary text, no additional explanation."""
                     if st.button("✨", key=f'refine_bullet_{i}_{j}', help="Refine this bullet with AI", use_container_width=True):
                         with st.spinner("🤖 Refining..."):
                             text_gen = get_text_generator()
+                            if text_gen is None:
+                                st.error("⚠️ Azure OpenAI is not configured. Please configure AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT in your Streamlit secrets.")
+                                return
                             refinement_prompt = f"""Improve this resume bullet point. Make it more quantified, impactful, and achievement-focused. Use numbers, percentages, or metrics when possible.
 
 Current Bullet:
@@ -2845,6 +2852,9 @@ def display_resume_generator():
         if st.button("🔄 Recalculate Match Score", use_container_width=True):
             with st.spinner("📊 Recalculating match score..."):
                 text_gen = get_text_generator()
+                if text_gen is None:
+                    st.error("⚠️ Azure OpenAI is not configured. Please configure AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT in your Streamlit secrets.")
+                    return
                 embedding_gen = get_embedding_generator()
                 resume_text = json.dumps(st.session_state.generated_resume, indent=2)
                 match_score, missing_keywords = text_gen.calculate_match_score(
@@ -2921,6 +2931,9 @@ def render_sidebar():
             else:
                 # Automatically infer target domains and salary from profile
                 text_gen = get_text_generator()
+                if text_gen is None:
+                    st.error("⚠️ Azure OpenAI is not configured. Please configure AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT in your Streamlit secrets.")
+                    return
                 user_profile = st.session_state.user_profile
                 profile_text = f"{user_profile.get('summary', '')} {user_profile.get('experience', '')} {user_profile.get('skills', '')}"
                 
