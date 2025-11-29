@@ -9,12 +9,16 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import re
 from io import BytesIO
 import PyPDF2
 from docx import Document
+import chromadb
+from chromadb.config import Settings
+import tiktoken
+import hashlib
 
 def api_call_with_retry(func, max_retries=3, initial_delay=1, max_delay=60):
     """
@@ -669,7 +673,7 @@ if 'dashboard_ready' not in st.session_state:
     st.session_state.dashboard_ready = False
 
 class APIMEmbeddingGenerator:
-    def __init__(self, api_key, endpoint):
+    def __init__(self, api_key, endpoint, token_tracker=None):
         self.api_key = api_key
         # Normalize endpoint: remove trailing slash
         endpoint = endpoint.rstrip('/')
@@ -681,10 +685,16 @@ class APIMEmbeddingGenerator:
         self.api_version = "2024-02-01"
         self.url = f"{self.endpoint}/openai/deployments/{self.deployment}/embeddings?api-version={self.api_version}"
         self.headers = {"api-key": self.api_key, "Content-Type": "application/json"}
+        self.token_tracker = token_tracker
+        self.encoding = tiktoken.get_encoding("cl100k_base")  # For token counting
     
     def get_embedding(self, text):
         try:
             payload = {"input": text, "model": self.deployment}
+            
+            # Count tokens for tracking
+            if self.token_tracker:
+                tokens = len(self.encoding.encode(text))
             
             def make_request():
                 return requests.post(self.url, headers=self.headers, json=payload, timeout=30)
@@ -692,7 +702,18 @@ class APIMEmbeddingGenerator:
             response = api_call_with_retry(make_request, max_retries=3, initial_delay=2)
             
             if response and response.status_code == 200:
-                return response.json()['data'][0]['embedding']
+                result = response.json()
+                embedding = result['data'][0]['embedding']
+                
+                # Track token usage if available in response
+                if self.token_tracker and 'usage' in result:
+                    tokens_used = result['usage'].get('total_tokens', 0)
+                    self.token_tracker.add_embedding_tokens(tokens_used)
+                elif self.token_tracker:
+                    # Fallback to estimated token count
+                    self.token_tracker.add_embedding_tokens(tokens)
+                
+                return embedding
             
             return None
         except Exception as e:
@@ -713,6 +734,10 @@ class APIMEmbeddingGenerator:
             try:
                 payload = {"input": batch, "model": self.deployment}
                 
+                # Count tokens for tracking
+                if self.token_tracker:
+                    batch_tokens = sum(len(self.encoding.encode(text)) for text in batch)
+                
                 def make_request():
                     return requests.post(self.url, headers=self.headers, json=payload, timeout=30)
                 
@@ -722,6 +747,14 @@ class APIMEmbeddingGenerator:
                     data = response.json()
                     sorted_data = sorted(data['data'], key=lambda x: x['index'])
                     embeddings.extend([item['embedding'] for item in sorted_data])
+                    
+                    # Track token usage if available in response
+                    if self.token_tracker and 'usage' in data:
+                        tokens_used = data['usage'].get('total_tokens', 0)
+                        self.token_tracker.add_embedding_tokens(tokens_used)
+                    elif self.token_tracker:
+                        # Fallback to estimated token count
+                        self.token_tracker.add_embedding_tokens(batch_tokens)
                 else:
                     # Fallback to individual calls if batch fails
                     st.warning(f"⚠️ Batch embedding failed, trying individual calls for batch {i//batch_size + 1}...")
@@ -741,7 +774,7 @@ class APIMEmbeddingGenerator:
         return embeddings
 
 class AzureOpenAITextGenerator:
-    def __init__(self, api_key, endpoint):
+    def __init__(self, api_key, endpoint, token_tracker=None):
         self.api_key = api_key
         # Normalize endpoint: remove trailing slash
         endpoint = endpoint.rstrip('/')
@@ -753,6 +786,8 @@ class AzureOpenAITextGenerator:
         self.api_version = "2024-02-01"
         self.url = f"{self.endpoint}/openai/deployments/{self.deployment}/chat/completions?api-version={self.api_version}"
         self.headers = {"api-key": self.api_key, "Content-Type": "application/json"}
+        self.token_tracker = token_tracker
+        self.encoding = tiktoken.get_encoding("cl100k_base")  # For token counting
     
     def generate_resume(self, user_profile, job_posting, raw_resume_text=None):
         """Generate a tailored resume based on user profile and job posting using Context Sandwich approach.
@@ -856,6 +891,13 @@ IMPORTANT: Return ONLY the JSON object, no markdown code blocks, no additional t
                 result = response.json()
                 content = result['choices'][0]['message']['content']
                 
+                # Track token usage
+                if self.token_tracker and 'usage' in result:
+                    usage = result['usage']
+                    prompt_tokens = usage.get('prompt_tokens', 0)
+                    completion_tokens = usage.get('completion_tokens', 0)
+                    self.token_tracker.add_completion_tokens(prompt_tokens, completion_tokens)
+                
                 # Parse JSON response
                 try:
                     # Remove markdown code blocks if present
@@ -934,6 +976,14 @@ Return format: {{"keywords": ["keyword1", "keyword2", "keyword3", ...]}}"""
                 try:
                     result = response.json()
                     content = result['choices'][0]['message']['content']
+                    
+                    # Track token usage
+                    if self.token_tracker and 'usage' in result:
+                        usage = result['usage']
+                        prompt_tokens = usage.get('prompt_tokens', 0)
+                        completion_tokens = usage.get('completion_tokens', 0)
+                        self.token_tracker.add_completion_tokens(prompt_tokens, completion_tokens)
+                    
                     # Try to parse keywords
                     keyword_data = json.loads(content)
                     job_keywords = keyword_data.get('keywords', [])
@@ -990,6 +1040,14 @@ Choose the most appropriate seniority level based on the job titles."""
             if response and response.status_code == 200:
                 result = response.json()
                 content = result['choices'][0]['message']['content']
+                
+                # Track token usage
+                if self.token_tracker and 'usage' in result:
+                    usage = result['usage']
+                    prompt_tokens = usage.get('prompt_tokens', 0)
+                    completion_tokens = usage.get('completion_tokens', 0)
+                    self.token_tracker.add_completion_tokens(prompt_tokens, completion_tokens)
+                
                 data = json.loads(content)
                 return data.get('seniority', 'Mid-Senior Level')
         except:
@@ -1051,6 +1109,14 @@ Focus on certifications that are:
             if response and response.status_code == 200:
                 result = response.json()
                 content = result['choices'][0]['message']['content']
+                
+                # Track token usage
+                if self.token_tracker and 'usage' in result:
+                    usage = result['usage']
+                    prompt_tokens = usage.get('prompt_tokens', 0)
+                    completion_tokens = usage.get('completion_tokens', 0)
+                    self.token_tracker.add_completion_tokens(prompt_tokens, completion_tokens)
+                
                 data = json.loads(content)
                 return data.get('accreditation', 'PMP or Scrum Master')
         except:
@@ -1100,6 +1166,14 @@ Return ONLY the recruiter note text, no labels or formatting."""
             response = api_call_with_retry(make_request, max_retries=2, initial_delay=2)
             if response and response.status_code == 200:
                 result = response.json()
+                
+                # Track token usage
+                if self.token_tracker and 'usage' in result:
+                    usage = result['usage']
+                    prompt_tokens = usage.get('prompt_tokens', 0)
+                    completion_tokens = usage.get('completion_tokens', 0)
+                    self.token_tracker.add_completion_tokens(prompt_tokens, completion_tokens)
+                
                 return result['choices'][0]['message']['content'].strip()
         except:
             pass
@@ -1199,11 +1273,194 @@ class IndeedScraperAPI:
         except:
             return None
 
+class LinkedInJobsAPI:
+    """Alternative job source using LinkedIn Jobs API via RapidAPI as fallback."""
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.url = "https://linkedin-jobs-search.p.rapidapi.com/"
+        self.headers = {
+            'X-RapidAPI-Key': api_key,
+            'X-RapidAPI-Host': 'linkedin-jobs-search.p.rapidapi.com',
+            'Content-Type': 'application/json'
+        }
+    
+    def search_jobs(self, query, location="Hong Kong", max_rows=15, job_type="fulltime", country="hk"):
+        """Search jobs from LinkedIn Jobs API."""
+        payload = {
+            "search_terms": query,
+            "location": location,
+            "page": "1"
+        }
+        
+        try:
+            def make_request():
+                return requests.get(self.url, headers=self.headers, params=payload, timeout=60)
+            
+            response = api_call_with_retry(make_request, max_retries=2, initial_delay=2)
+            
+            if response and response.status_code == 200:
+                data = response.json()
+                jobs = []
+                
+                # Parse LinkedIn Jobs API response format
+                if isinstance(data, list):
+                    for job_data in data[:max_rows]:
+                        parsed_job = self._parse_job(job_data)
+                        if parsed_job:
+                            jobs.append(parsed_job)
+                elif isinstance(data, dict) and 'jobs' in data:
+                    for job_data in data['jobs'][:max_rows]:
+                        parsed_job = self._parse_job(job_data)
+                        if parsed_job:
+                            jobs.append(parsed_job)
+                
+                return jobs
+            else:
+                return []
+                
+        except Exception as e:
+            # Silently fail for fallback source
+            return []
+    
+    def _parse_job(self, job_data):
+        """Parse LinkedIn job data into standard format."""
+        try:
+            return {
+                'title': job_data.get('title') or job_data.get('job_title', 'N/A'),
+                'company': job_data.get('company') or job_data.get('company_name', 'N/A'),
+                'location': job_data.get('location') or job_data.get('job_location', 'Hong Kong'),
+                'description': job_data.get('description') or job_data.get('job_description', 'No description')[:50000],
+                'salary': job_data.get('salary', 'Not specified'),
+                'job_type': job_data.get('job_type', 'Full-time'),
+                'url': job_data.get('job_url') or job_data.get('url', '#'),
+                'posted_date': job_data.get('posted_date') or job_data.get('date', 'Recently'),
+                'benefits': job_data.get('benefits', [])[:5],
+                'skills': job_data.get('skills', [])[:10],
+                'company_rating': job_data.get('company_rating', {}).get('rating', 0) if isinstance(job_data.get('company_rating'), dict) else 0,
+                'is_remote': job_data.get('is_remote', False) or job_data.get('remote', False)
+            }
+        except:
+            return None
+
+class MultiSourceJobAggregator:
+    """Aggregates jobs from multiple sources with failover mechanism."""
+    def __init__(self, primary_source, fallback_source=None):
+        self.primary_source = primary_source
+        self.fallback_source = fallback_source
+        self.last_error = None
+    
+    def search_jobs(self, query, location="Hong Kong", max_rows=15, job_type="fulltime", country="hk"):
+        """Search jobs from primary source, fallback to secondary if primary fails."""
+        all_jobs = []
+        sources_used = []
+        
+        # Try primary source
+        try:
+            jobs = self.primary_source.search_jobs(query, location, max_rows, job_type, country)
+            if jobs:
+                all_jobs.extend(jobs)
+                sources_used.append("Indeed")
+        except Exception as e:
+            self.last_error = f"Primary source error: {str(e)}"
+            st.warning(f"⚠️ Primary job source unavailable: {str(e)[:100]}")
+        
+        # Try fallback source if primary failed or returned insufficient results
+        if self.fallback_source and (len(all_jobs) < max_rows // 2):
+            try:
+                fallback_jobs = self.fallback_source.search_jobs(query, location, max_rows - len(all_jobs), job_type, country)
+                if fallback_jobs:
+                    all_jobs.extend(fallback_jobs)
+                    sources_used.append("LinkedIn")
+            except Exception as e:
+                if not self.last_error:
+                    self.last_error = f"Fallback source error: {str(e)}"
+        
+        # Remove duplicates based on title + company
+        seen = set()
+        unique_jobs = []
+        for job in all_jobs:
+            key = (job.get('title', '').lower(), job.get('company', '').lower())
+            if key not in seen:
+                seen.add(key)
+                unique_jobs.append(job)
+        
+        if sources_used:
+            st.info(f"📊 Jobs aggregated from: {', '.join(sources_used)} ({len(unique_jobs)} unique jobs)")
+        
+        return unique_jobs[:max_rows]
+
+class TokenUsageTracker:
+    """Tracks token usage and costs for API calls."""
+    def __init__(self):
+        self.total_tokens = 0
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
+        self.total_embedding_tokens = 0
+        self.cost_usd = 0.0
+        # Pricing (as of 2024, adjust as needed)
+        self.embedding_cost_per_1k = 0.00002  # $0.00002 per 1K tokens for text-embedding-3-small
+        self.gpt4_mini_prompt_cost_per_1k = 0.00015  # $0.00015 per 1K tokens
+        self.gpt4_mini_completion_cost_per_1k = 0.0006  # $0.0006 per 1K tokens
+    
+    def add_embedding_tokens(self, tokens):
+        """Track embedding token usage."""
+        self.total_embedding_tokens += tokens
+        self.total_tokens += tokens
+        self.cost_usd += (tokens / 1000) * self.embedding_cost_per_1k
+    
+    def add_completion_tokens(self, prompt_tokens, completion_tokens):
+        """Track completion token usage."""
+        self.total_prompt_tokens += prompt_tokens
+        self.total_completion_tokens += completion_tokens
+        self.total_tokens += prompt_tokens + completion_tokens
+        self.cost_usd += (prompt_tokens / 1000) * self.gpt4_mini_prompt_cost_per_1k
+        self.cost_usd += (completion_tokens / 1000) * self.gpt4_mini_completion_cost_per_1k
+    
+    def get_summary(self):
+        """Get usage summary."""
+        return {
+            'total_tokens': self.total_tokens,
+            'embedding_tokens': self.total_embedding_tokens,
+            'prompt_tokens': self.total_prompt_tokens,
+            'completion_tokens': self.total_completion_tokens,
+            'estimated_cost_usd': self.cost_usd
+        }
+    
+    def reset(self):
+        """Reset counters."""
+        self.total_tokens = 0
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
+        self.total_embedding_tokens = 0
+        self.cost_usd = 0.0
+
 class SemanticJobSearch:
-    def __init__(self, embedding_generator):
+    def __init__(self, embedding_generator, use_persistent_store=True):
         self.embedding_gen = embedding_generator
         self.job_embeddings = []
         self.jobs = []
+        self.use_persistent_store = use_persistent_store
+        self.chroma_client = None
+        self.collection = None
+        
+        if use_persistent_store:
+            try:
+                # Initialize ChromaDB with persistent storage
+                chroma_db_path = os.path.join(os.getcwd(), ".chroma_db")
+                os.makedirs(chroma_db_path, exist_ok=True)
+                self.chroma_client = chromadb.PersistentClient(path=chroma_db_path)
+                self.collection = self.chroma_client.get_or_create_collection(
+                    name="job_embeddings",
+                    metadata={"hnsw:space": "cosine"}
+                )
+            except Exception as e:
+                st.warning(f"⚠️ Could not initialize persistent vector store: {e}. Using in-memory storage.")
+                self.use_persistent_store = False
+    
+    def _get_job_hash(self, job):
+        """Generate a hash for a job to use as ID."""
+        job_str = f"{job.get('title', '')}_{job.get('company', '')}_{job.get('url', '')}"
+        return hashlib.md5(job_str.encode()).hexdigest()
     
     def index_jobs(self, jobs):
         self.jobs = jobs
@@ -1213,8 +1470,73 @@ class SemanticJobSearch:
         ]
         
         st.info(f"📊 Indexing {len(jobs)} jobs...")
-        self.job_embeddings = self.embedding_gen.get_embeddings_batch(job_texts)
-        st.success(f"✅ Indexed {len(self.job_embeddings)} jobs")
+        
+        # Check if embeddings exist in persistent store
+        if self.use_persistent_store and self.collection:
+            try:
+                # Get existing job IDs
+                existing_ids = set()
+                existing_data = self.collection.get()
+                if existing_data and 'ids' in existing_data:
+                    existing_ids = set(existing_data['ids'])
+                
+                # Generate hashes for current jobs
+                job_hashes = [self._get_job_hash(job) for job in jobs]
+                
+                # Find jobs that need new embeddings
+                jobs_to_embed = []
+                indices_to_embed = []
+                for idx, job_hash in enumerate(job_hashes):
+                    if job_hash not in existing_ids:
+                        jobs_to_embed.append(job_texts[idx])
+                        indices_to_embed.append(idx)
+                
+                if jobs_to_embed:
+                    st.info(f"🔄 Generating embeddings for {len(jobs_to_embed)} new jobs...")
+                    new_embeddings = self.embedding_gen.get_embeddings_batch(jobs_to_embed)
+                    
+                    # Store new embeddings
+                    for i, (idx, emb) in enumerate(zip(indices_to_embed, new_embeddings)):
+                        job_hash = job_hashes[idx]
+                        self.collection.add(
+                            ids=[job_hash],
+                            embeddings=[emb],
+                            documents=[job_texts[idx]],
+                            metadatas=[{"job_index": idx}]
+                        )
+                
+                # Retrieve all embeddings from store
+                all_hashes = [self._get_job_hash(job) for job in jobs]
+                retrieved = self.collection.get(ids=all_hashes, include=['embeddings'])
+                
+                if retrieved and 'embeddings' in retrieved and retrieved['embeddings']:
+                    # Sort embeddings by job order
+                    hash_to_emb = {h: e for h, e in zip(retrieved['ids'], retrieved['embeddings'])}
+                    self.job_embeddings = [hash_to_emb.get(h, None) for h in all_hashes]
+                    # Filter out None values (shouldn't happen, but safety check)
+                    self.job_embeddings = [e for e in self.job_embeddings if e is not None]
+                else:
+                    # Fallback: generate all embeddings
+                    self.job_embeddings = self.embedding_gen.get_embeddings_batch(job_texts)
+                    # Store all embeddings
+                    for idx, (job, job_text, emb) in enumerate(zip(jobs, job_texts, self.job_embeddings)):
+                        job_hash = self._get_job_hash(job)
+                        self.collection.upsert(
+                            ids=[job_hash],
+                            embeddings=[emb],
+                            documents=[job_text],
+                            metadatas=[{"job_index": idx}]
+                        )
+                
+                st.success(f"✅ Indexed {len(self.job_embeddings)} jobs (using persistent store)")
+            except Exception as e:
+                st.warning(f"⚠️ Error using persistent store: {e}. Generating new embeddings...")
+                self.job_embeddings = self.embedding_gen.get_embeddings_batch(job_texts)
+                self.use_persistent_store = False
+        else:
+            # Fallback to in-memory storage
+            self.job_embeddings = self.embedding_gen.get_embeddings_batch(job_texts)
+            st.success(f"✅ Indexed {len(self.job_embeddings)} jobs")
     
     def search(self, query, top_k=10):
         if not self.job_embeddings:
@@ -1241,18 +1563,64 @@ class SemanticJobSearch:
         return results
     
     def calculate_skill_match(self, user_skills, job_skills):
-        """Calculate skill-based match score"""
+        """Calculate skill-based match score using semantic similarity (embeddings)"""
         if not user_skills or not job_skills:
             return 0.0, []
         
-        # Normalize skills to lowercase for comparison
-        user_skills_lower = [s.lower().strip() for s in str(user_skills).split(',') if s.strip()]
-        job_skills_lower = [s.lower().strip() for s in job_skills if isinstance(s, str) and s.strip()]
+        # Parse skills into lists
+        user_skills_list = [s.strip() for s in str(user_skills).split(',') if s.strip()]
+        job_skills_list = [s.strip() for s in job_skills if isinstance(s, str) and s.strip()]
         
-        if not user_skills_lower or not job_skills_lower:
+        if not user_skills_list or not job_skills_list:
             return 0.0, []
         
-        # Find matching skills
+        try:
+            # Generate embeddings for all skills
+            user_skill_embeddings = self.embedding_gen.get_embeddings_batch(user_skills_list, batch_size=20)
+            job_skill_embeddings = self.embedding_gen.get_embeddings_batch(job_skills_list, batch_size=20)
+            
+            if not user_skill_embeddings or not job_skill_embeddings:
+                # Fallback to string matching if embeddings fail
+                return self._calculate_skill_match_string_based(user_skills_list, job_skills_list)
+            
+            # Convert to numpy arrays
+            user_embs = np.array(user_skill_embeddings)
+            job_embs = np.array(job_skill_embeddings)
+            
+            # Calculate similarity matrix (cosine similarity between all user skills and job skills)
+            similarity_matrix = cosine_similarity(job_embs, user_embs)
+            
+            # Find best matches: for each job skill, find the best matching user skill
+            # Use a threshold of 0.7 for semantic similarity (adjustable)
+            similarity_threshold = 0.7
+            matched_skills = []
+            matched_indices = set()
+            
+            for job_idx, job_skill in enumerate(job_skills_list):
+                best_match_idx = np.argmax(similarity_matrix[job_idx])
+                best_similarity = similarity_matrix[job_idx][best_match_idx]
+                
+                if best_similarity >= similarity_threshold and best_match_idx not in matched_indices:
+                    matched_skills.append(job_skill)
+                    matched_indices.add(best_match_idx)
+            
+            # Calculate match percentage
+            match_score = len(matched_skills) / len(job_skills_list) if job_skills_list else 0.0
+            # Find missing skills (job skills that weren't matched)
+            missing_skills = [js for js in job_skills_list if js not in matched_skills]
+            
+            return min(match_score, 1.0), missing_skills[:5]
+            
+        except Exception as e:
+            # Fallback to string-based matching if semantic matching fails
+            st.warning(f"⚠️ Semantic skill matching failed, using string matching: {e}")
+            return self._calculate_skill_match_string_based(user_skills_list, job_skills_list)
+    
+    def _calculate_skill_match_string_based(self, user_skills_list, job_skills_list):
+        """Fallback string-based skill matching"""
+        user_skills_lower = [s.lower() for s in user_skills_list]
+        job_skills_lower = [s.lower() for s in job_skills_list]
+        
         matched_skills = []
         for job_skill in job_skills_lower:
             for user_skill in user_skills_lower:
@@ -1260,38 +1628,176 @@ class SemanticJobSearch:
                     matched_skills.append(job_skill)
                     break
         
-        # Calculate match percentage
         match_score = len(matched_skills) / len(job_skills_lower) if job_skills_lower else 0.0
-        missing_skills = [s for s in job_skills_lower if s not in matched_skills]
+        missing_skills = [job_skills_list[i] for i, js in enumerate(job_skills_lower) if js not in matched_skills]
         
-        return min(match_score, 1.0), missing_skills[:5]  # Cap at 1.0 and limit missing skills
+        return min(match_score, 1.0), missing_skills[:5]
+
+def is_cache_valid(cache_entry):
+    """Check if cache entry is still valid (not expired)."""
+    if not cache_entry or not isinstance(cache_entry, dict):
+        return False
+    
+    expires_at = cache_entry.get('expires_at')
+    if expires_at is None:
+        # Legacy cache without TTL - consider invalid for safety
+        return False
+    
+    # Handle both datetime objects and string timestamps
+    if isinstance(expires_at, str):
+        try:
+            expires_at = datetime.strptime(expires_at, "%Y-%m-%d %H:%M:%S")
+        except:
+            return False
+    
+    return datetime.now() < expires_at
+
+def get_token_tracker():
+    """Get or create token usage tracker."""
+    if 'token_tracker' not in st.session_state:
+        st.session_state.token_tracker = TokenUsageTracker()
+    return st.session_state.token_tracker
 
 def get_embedding_generator():
     if st.session_state.embedding_gen is None:
         # Use secrets instead of hardcoded values
         AZURE_OPENAI_API_KEY = st.secrets["AZURE_OPENAI_API_KEY"]
         AZURE_OPENAI_ENDPOINT = st.secrets["AZURE_OPENAI_ENDPOINT"]
-        st.session_state.embedding_gen = APIMEmbeddingGenerator(AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT)
+        token_tracker = get_token_tracker()
+        st.session_state.embedding_gen = APIMEmbeddingGenerator(AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, token_tracker)
     return st.session_state.embedding_gen
 
 def get_job_scraper():
-    # Use secrets instead of hardcoded values
-    RAPIDAPI_KEY = st.secrets["RAPIDAPI_KEY"]
-    return IndeedScraperAPI(RAPIDAPI_KEY)
+    """Get multi-source job aggregator with failover.
+    
+    Uses RAPIDAPI_KEY for both primary (Indeed) and fallback (LinkedIn) sources.
+    If LINKEDIN_API_KEY is set, it will be used for the fallback source instead.
+    Both APIs typically use the same RapidAPI key if subscribed to both.
+    """
+    if 'job_aggregator' not in st.session_state:
+        # Primary source: Indeed (required)
+        RAPIDAPI_KEY = st.secrets.get("RAPIDAPI_KEY", "")
+        if not RAPIDAPI_KEY:
+            st.error("⚠️ RAPIDAPI_KEY is required in secrets. Please configure it in your .streamlit/secrets.toml")
+            return None
+        
+        primary_source = IndeedScraperAPI(RAPIDAPI_KEY)
+        
+        # Fallback source: LinkedIn (optional)
+        # Use separate key if provided, otherwise use the same RapidAPI key
+        # Most users will use the same RapidAPI key for both APIs
+        fallback_key = st.secrets.get("LINKEDIN_API_KEY") or RAPIDAPI_KEY
+        
+        fallback_source = None
+        try:
+            fallback_source = LinkedInJobsAPI(fallback_key)
+        except Exception as e:
+            # Fallback source is optional - silently fail
+            # The aggregator will work with just the primary source
+            pass
+        
+        st.session_state.job_aggregator = MultiSourceJobAggregator(primary_source, fallback_source)
+    
+    return st.session_state.job_aggregator
 
 def get_text_generator():
     if st.session_state.text_gen is None:
         AZURE_OPENAI_API_KEY = st.secrets["AZURE_OPENAI_API_KEY"]
         AZURE_OPENAI_ENDPOINT = st.secrets["AZURE_OPENAI_ENDPOINT"]
-        st.session_state.text_gen = AzureOpenAITextGenerator(AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT)
+        token_tracker = get_token_tracker()
+        st.session_state.text_gen = AzureOpenAITextGenerator(AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, token_tracker)
     return st.session_state.text_gen
 
 def extract_salary_from_text(text):
-    """Extract salary information from job description text"""
+    """Extract salary information from job description text using LLM"""
     if not text:
         return None, None
     
-    # Look for common salary patterns in HKD
+    # Limit text length to avoid token limits (check first 3000 chars which usually contains salary info)
+    text_for_extraction = text[:3000] if len(text) > 3000 else text
+    
+    try:
+        text_gen = get_text_generator()
+        
+        prompt = f"""Extract salary information from this job description text. 
+Look for salary ranges, amounts, and compensation details. Normalize everything to monthly HKD (Hong Kong Dollars).
+
+JOB DESCRIPTION TEXT:
+{text_for_extraction}
+
+Extract and return salary information as JSON with this structure:
+{{
+    "min_salary_hkd_monthly": <number or null>,
+    "max_salary_hkd_monthly": <number or null>,
+    "found": true/false,
+    "raw_text": "the exact salary text found in the description"
+}}
+
+Rules:
+- Convert all amounts to monthly HKD (multiply annual by 12, weekly by 4.33, daily by 22)
+- If only one amount is found, set both min and max to that value
+- If a range is found (e.g., "60k-80k"), extract both min and max
+- Handle formats like "competitive", "based on experience", "around 60k-80k annually" by extracting the numeric range
+- If no salary is found, set "found": false and return null for min/max
+- Always return valid JSON, no additional text"""
+
+        payload = {
+            "messages": [
+                {"role": "system", "content": "You are a salary extraction expert. Extract salary information and normalize to monthly HKD. Return only valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 300,
+            "temperature": 0.1,
+            "response_format": {"type": "json_object"}
+        }
+        
+        def make_request():
+            return requests.post(
+                text_gen.url,
+                headers=text_gen.headers,
+                json=payload,
+                timeout=30
+            )
+        
+        response = api_call_with_retry(make_request, max_retries=2, initial_delay=2)
+        
+        if response and response.status_code == 200:
+            result = response.json()
+            content = result['choices'][0]['message']['content']
+            
+            # Track token usage
+            if text_gen.token_tracker and 'usage' in result:
+                usage = result['usage']
+                prompt_tokens = usage.get('prompt_tokens', 0)
+                completion_tokens = usage.get('completion_tokens', 0)
+                text_gen.token_tracker.add_completion_tokens(prompt_tokens, completion_tokens)
+            
+            # Parse JSON response
+            try:
+                salary_data = json.loads(content)
+                if salary_data.get('found', False):
+                    min_sal = salary_data.get('min_salary_hkd_monthly')
+                    max_sal = salary_data.get('max_salary_hkd_monthly')
+                    if min_sal is not None and max_sal is not None:
+                        return int(min_sal), int(max_sal)
+                    elif min_sal is not None:
+                        return int(min_sal), int(min_sal * 1.2)  # Estimate range
+            except (json.JSONDecodeError, ValueError, TypeError) as e:
+                # Fallback to regex if LLM parsing fails
+                pass
+        
+        # Fallback to regex-based extraction if LLM fails
+        return extract_salary_from_text_regex(text)
+        
+    except Exception as e:
+        # Fallback to regex if LLM extraction fails
+        return extract_salary_from_text_regex(text)
+
+def extract_salary_from_text_regex(text):
+    """Fallback regex-based salary extraction"""
+    if not text:
+        return None, None
+    
     import re
     patterns = [
         r'HKD\s*\$?\s*(\d{1,3}(?:,\d{3})*(?:k|K)?)\s*[-–—]\s*\$?\s*(\d{1,3}(?:,\d{3})*(?:k|K)?)',
@@ -1519,11 +2025,12 @@ def extract_text_from_resume(uploaded_file):
         return None
 
 def extract_profile_from_resume(resume_text):
-    """Use Azure OpenAI to extract structured profile information from resume text"""
+    """Use Azure OpenAI to extract structured profile information from resume text with two-pass self-correction"""
     try:
         text_gen = get_text_generator()
         
-        prompt = f"""You are an expert at parsing resumes. Extract structured information from the following resume text.
+        # FIRST PASS: Initial extraction
+        prompt_pass1 = f"""You are an expert at parsing resumes. Extract structured information from the following resume text.
 
 RESUME TEXT:
 {resume_text}
@@ -1550,57 +2057,133 @@ Important:
 - Keep the summary concise but informative
 - Return ONLY valid JSON, no additional text or markdown"""
         
-        payload = {
+        payload_pass1 = {
             "messages": [
                 {"role": "system", "content": "You are a resume parser. Extract structured information and return only valid JSON."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt_pass1}
             ],
             "max_tokens": 2000,
-            "temperature": 0.3
+            "temperature": 0.3,
+            "response_format": {"type": "json_object"}
         }
         
-        def make_request():
+        def make_request_pass1():
             return requests.post(
                 text_gen.url,
                 headers=text_gen.headers,
-                json=payload,
+                json=payload_pass1,
                 timeout=60
             )
         
-        response = api_call_with_retry(make_request, max_retries=3, initial_delay=2)
+        response_pass1 = api_call_with_retry(make_request_pass1, max_retries=3, initial_delay=2)
         
-        if response and response.status_code == 200:
-            result = response.json()
-            content = result['choices'][0]['message']['content']
-            
-            # Try to extract JSON from the response
-            # Sometimes the model returns JSON wrapped in markdown code blocks
-            content = content.strip()
-            if content.startswith("```"):
-                # Remove markdown code blocks
-                lines = content.split('\n')
-                content = '\n'.join(lines[1:-1]) if lines[-1].startswith('```') else '\n'.join(lines[1:])
-            
-            try:
-                profile_data = json.loads(content)
-                return profile_data
-            except json.JSONDecodeError:
-                # Try to find JSON in the response
-                json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                if json_match:
-                    profile_data = json.loads(json_match.group())
-                    return profile_data
-                else:
-                    st.error("Could not parse extracted profile data. Please try again.")
-                    return None
-        else:
-            if response:
-                if response.status_code == 429:
-                    st.error("🚫 Rate limit reached for profile extraction. Please wait a few minutes and try again.")
-                else:
-                    error_detail = response.text[:200] if response.text else "No error details"
-                    st.error(f"API Error: {response.status_code} - {error_detail}")
+        if not response_pass1 or response_pass1.status_code != 200:
+            if response_pass1 and response_pass1.status_code == 429:
+                st.error("🚫 Rate limit reached for profile extraction. Please wait a few minutes and try again.")
+            else:
+                error_detail = response_pass1.text[:200] if response_pass1 and response_pass1.text else "No error details"
+                st.error(f"API Error: {response_pass1.status_code if response_pass1 else 'Unknown'} - {error_detail}")
             return None
+        
+        result_pass1 = response_pass1.json()
+        content_pass1 = result_pass1['choices'][0]['message']['content']
+        
+        # Track token usage for first pass
+        if text_gen.token_tracker and 'usage' in result_pass1:
+            usage = result_pass1['usage']
+            prompt_tokens = usage.get('prompt_tokens', 0)
+            completion_tokens = usage.get('completion_tokens', 0)
+            text_gen.token_tracker.add_completion_tokens(prompt_tokens, completion_tokens)
+        
+        # Parse first pass JSON
+        try:
+            profile_data_pass1 = json.loads(content_pass1)
+        except json.JSONDecodeError:
+            # Try to find JSON in the response
+            json_match = re.search(r'\{.*\}', content_pass1, re.DOTALL)
+            if json_match:
+                profile_data_pass1 = json.loads(json_match.group())
+            else:
+                st.error("Could not parse extracted profile data from first pass. Please try again.")
+                return None
+        
+        # SECOND PASS: Self-correction - verify dates and company names
+        prompt_pass2 = f"""You are a resume quality checker. Review the extracted profile data against the original resume text and verify accuracy, especially for dates and company names.
+
+ORIGINAL RESUME TEXT:
+{resume_text[:4000]}
+
+EXTRACTED PROFILE DATA (from first pass):
+{json.dumps(profile_data_pass1, indent=2)}
+
+Please review and correct the extracted data, paying special attention to:
+1. **Dates** - Verify all employment dates, education dates, and certification dates are accurate
+2. **Company Names** - Verify all company/organization names are spelled correctly
+3. **Job Titles** - Verify job titles are accurate
+4. **Education Institutions** - Verify institution names are correct
+
+Return the corrected profile data in the same JSON format. If everything is correct, return the data as-is. If corrections are needed, return the corrected version.
+
+Return ONLY valid JSON with this structure:
+{{
+    "name": "Full name",
+    "email": "Email address",
+    "phone": "Phone number",
+    "location": "City, State/Country",
+    "linkedin": "LinkedIn URL if mentioned",
+    "portfolio": "Portfolio/website URL if mentioned",
+    "summary": "Professional summary or objective (2-3 sentences)",
+    "experience": "Work experience in chronological order with job titles, companies, dates, and key achievements (formatted as bullet points)",
+    "education": "Education details including degrees, institutions, and graduation dates",
+    "skills": "Comma-separated list of technical and soft skills",
+    "certifications": "Professional certifications, awards, publications, or other achievements"
+}}
+
+Return ONLY valid JSON, no additional text or markdown."""
+        
+        payload_pass2 = {
+            "messages": [
+                {"role": "system", "content": "You are a resume quality checker. Verify and correct extracted data, especially dates and company names. Return only valid JSON."},
+                {"role": "user", "content": prompt_pass2}
+            ],
+            "max_tokens": 2000,
+            "temperature": 0.1,  # Lower temperature for more accurate corrections
+            "response_format": {"type": "json_object"}
+        }
+        
+        def make_request_pass2():
+            return requests.post(
+                text_gen.url,
+                headers=text_gen.headers,
+                json=payload_pass2,
+                timeout=60
+            )
+        
+        response_pass2 = api_call_with_retry(make_request_pass2, max_retries=3, initial_delay=2)
+        
+        if response_pass2 and response_pass2.status_code == 200:
+            result_pass2 = response_pass2.json()
+            content_pass2 = result_pass2['choices'][0]['message']['content']
+            
+            # Track token usage for second pass
+            if text_gen.token_tracker and 'usage' in result_pass2:
+                usage = result_pass2['usage']
+                prompt_tokens = usage.get('prompt_tokens', 0)
+                completion_tokens = usage.get('completion_tokens', 0)
+                text_gen.token_tracker.add_completion_tokens(prompt_tokens, completion_tokens)
+            
+            # Parse second pass JSON (corrected version)
+            try:
+                profile_data_corrected = json.loads(content_pass2)
+                return profile_data_corrected
+            except json.JSONDecodeError:
+                # If second pass fails, return first pass result
+                st.warning("⚠️ Self-correction pass failed, using initial extraction. Some details may need manual verification.")
+                return profile_data_pass1
+        else:
+            # If second pass fails, return first pass result
+            st.warning("⚠️ Self-correction pass failed, using initial extraction. Some details may need manual verification.")
+            return profile_data_pass1
             
     except Exception as e:
         st.error(f"Error extracting profile: {e}")
@@ -1759,12 +2342,44 @@ def render_structured_resume_editor(resume_data):
             edited_data['header']['portfolio'] = st.text_input("Portfolio URL", value=resume_data.get('header', {}).get('portfolio', ''), key='resume_portfolio')
     
     # Summary
-    edited_data['summary'] = st.text_area(
-        "Professional Summary",
-        value=resume_data.get('summary', ''),
-        height=100,
-        key='resume_summary'
-    )
+    col_summary1, col_summary2 = st.columns([4, 1])
+    with col_summary1:
+        edited_data['summary'] = st.text_area(
+            "Professional Summary",
+            value=resume_data.get('summary', ''),
+            height=100,
+            key='resume_summary'
+        )
+    with col_summary2:
+        if st.button("✨ Refine with AI", key='refine_summary', use_container_width=True, help="Use AI to improve this section"):
+            with st.spinner("🤖 Refining summary..."):
+                text_gen = get_text_generator()
+                refinement_prompt = f"""Improve this professional summary. Make it more impactful, quantified, and tailored. Keep it concise (2-3 sentences).
+
+Current Summary:
+{edited_data.get('summary', resume_data.get('summary', ''))}
+
+Return ONLY the improved summary text, no additional explanation."""
+                
+                payload = {
+                    "messages": [
+                        {"role": "system", "content": "You are a resume writing expert. Improve professional summaries to be more impactful and quantified."},
+                        {"role": "user", "content": refinement_prompt}
+                    ],
+                    "max_tokens": 200,
+                    "temperature": 0.7
+                }
+                
+                def make_request():
+                    return requests.post(text_gen.url, headers=text_gen.headers, json=payload, timeout=30)
+                
+                response = api_call_with_retry(make_request, max_retries=2, initial_delay=2)
+                if response and response.status_code == 200:
+                    result = response.json()
+                    refined_text = result['choices'][0]['message']['content'].strip()
+                    # Update the text area value
+                    st.session_state['resume_summary'] = refined_text
+                    st.rerun()
     
     # Skills
     skills_list = resume_data.get('skills_highlighted', [])
@@ -1796,12 +2411,44 @@ def render_structured_resume_editor(resume_data):
             bullets = exp.get('bullets', [])
             edited_bullets = []
             for j, bullet in enumerate(bullets):
-                bullet_text = st.text_area(
-                    f"Bullet {j+1}",
-                    value=bullet,
-                    height=60,
-                    key=f'exp_bullet_{i}_{j}'
-                )
+                col_bullet1, col_bullet2 = st.columns([4, 1])
+                with col_bullet1:
+                    bullet_text = st.text_area(
+                        f"Bullet {j+1}",
+                        value=bullet,
+                        height=60,
+                        key=f'exp_bullet_{i}_{j}'
+                    )
+                with col_bullet2:
+                    if st.button("✨", key=f'refine_bullet_{i}_{j}', help="Refine this bullet with AI", use_container_width=True):
+                        with st.spinner("🤖 Refining..."):
+                            text_gen = get_text_generator()
+                            refinement_prompt = f"""Improve this resume bullet point. Make it more quantified, impactful, and achievement-focused. Use numbers, percentages, or metrics when possible.
+
+Current Bullet:
+{bullet_text if bullet_text else bullet}
+
+Return ONLY the improved bullet point, no additional text."""
+                            
+                            payload = {
+                                "messages": [
+                                    {"role": "system", "content": "You are a resume writing expert. Improve bullet points to be quantified and achievement-focused."},
+                                    {"role": "user", "content": refinement_prompt}
+                                ],
+                                "max_tokens": 150,
+                                "temperature": 0.7
+                            }
+                            
+                            def make_request():
+                                return requests.post(text_gen.url, headers=text_gen.headers, json=payload, timeout=30)
+                            
+                            response = api_call_with_retry(make_request, max_retries=2, initial_delay=2)
+                            if response and response.status_code == 200:
+                                result = response.json()
+                                refined_text = result['choices'][0]['message']['content'].strip()
+                                st.session_state[f'exp_bullet_{i}_{j}'] = refined_text
+                                st.rerun()
+                
                 if bullet_text.strip():
                     edited_bullets.append(bullet_text.strip())
             
@@ -2096,9 +2743,24 @@ def display_resume_generator():
         st.markdown("---")
         
         # Download buttons
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
+            # Download as PDF
+            pdf_file = generate_pdf_from_json(
+                st.session_state.generated_resume,
+                filename=f"resume_{job['company']}_{job['title']}.pdf"
+            )
+            if pdf_file:
+                st.download_button(
+                    label="📥 Download as PDF",
+                    data=pdf_file,
+                    file_name=f"resume_{job['company']}_{job['title']}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+        
+        with col2:
             # Download as DOCX
             docx_file = generate_docx_from_json(
                 st.session_state.generated_resume,
@@ -2113,7 +2775,7 @@ def display_resume_generator():
                     use_container_width=True
                 )
         
-        with col2:
+        with col3:
             # Download as JSON
             json_data = json.dumps(st.session_state.generated_resume, indent=2)
             st.download_button(
@@ -2124,7 +2786,7 @@ def display_resume_generator():
                 use_container_width=True
             )
         
-        with col3:
+        with col4:
             # Download as TXT (formatted text version)
             txt_content = format_resume_as_text(st.session_state.generated_resume)
             st.download_button(
@@ -2135,7 +2797,7 @@ def display_resume_generator():
                 use_container_width=True
             )
         
-        with col4:
+        with col5:
             # Apply to job button
             if job['url'] != '#':
                 st.link_button(
@@ -2209,31 +2871,6 @@ def render_sidebar():
                             }
                             st.success("✅ Profile extracted!")
         
-        # Market Filters Section
-        st.markdown("---")
-        st.markdown("### 2. Refine Market Scope")
-        
-        # Target Domains
-        target_domains = st.multiselect(
-            "Select Target Domains (HK Focus)",
-            options=["FinTech", "ESG & Sustainability", "Data Analytics", "Digital Transformation", 
-                    "Investment Banking", "Consulting", "Technology", "Healthcare", "Education"],
-            default=[],
-            key="careerlens_domains"
-        )
-        st.session_state.target_domains = target_domains
-        
-        # Salary Expectations
-        salary_expectation = st.slider(
-            "Min. Monthly Salary Expectation (HKD)",
-            min_value=20000,
-            max_value=150000,
-            value=45000,
-            step=5000,
-            key="careerlens_salary"
-        )
-        st.session_state.salary_expectation = salary_expectation
-        
         # Primary Action Button
         st.markdown("---")
         analyze_button = st.button(
@@ -2248,32 +2885,129 @@ def render_sidebar():
             if not st.session_state.resume_text and not st.session_state.user_profile.get('summary'):
                 st.error("⚠️ Please upload your CV first!")
             else:
-                # Fetch jobs based on filters
-                search_query = " ".join(target_domains) if target_domains else "Hong Kong jobs"
-                scraper = get_job_scraper()
+                # Automatically infer target domains and salary from profile
+                text_gen = get_text_generator()
+                user_profile = st.session_state.user_profile
+                profile_text = f"{user_profile.get('summary', '')} {user_profile.get('experience', '')} {user_profile.get('skills', '')}"
                 
-                with st.spinner("🔄 Fetching jobs and analyzing..."):
-                    # Fetch more jobs initially to allow for filtering
-                    jobs = scraper.search_jobs(search_query, "Hong Kong", 25, "fulltime", "hk")
+                with st.spinner("🤖 Analyzing your profile to infer preferences..."):
+                    # Infer target domains
+                    domain_prompt = f"""Based on this professional profile, identify the most relevant target domains/industries for job search in Hong Kong.
+
+Profile:
+{profile_text[:2000]}
+
+Return a JSON object with:
+{{
+    "domains": ["Domain1", "Domain2", "Domain3"],
+    "reasoning": "brief explanation"
+}}
+
+Choose from: FinTech, ESG & Sustainability, Data Analytics, Digital Transformation, Investment Banking, Consulting, Technology, Healthcare, Education
+
+Return ONLY valid JSON."""
                     
-                    if jobs:
-                        # Apply domain filters
-                        if target_domains:
-                            jobs = filter_jobs_by_domains(jobs, target_domains)
+                    domain_payload = {
+                        "messages": [
+                            {"role": "system", "content": "You are a career advisor. Analyze profiles and suggest relevant job domains. Return only JSON."},
+                            {"role": "user", "content": domain_prompt}
+                        ],
+                        "max_tokens": 200,
+                        "temperature": 0.3,
+                        "response_format": {"type": "json_object"}
+                    }
+                    
+                    def make_domain_request():
+                        return requests.post(text_gen.url, headers=text_gen.headers, json=domain_payload, timeout=30)
+                    
+                    domain_response = api_call_with_retry(make_domain_request, max_retries=2, initial_delay=2)
+                    inferred_domains = []
+                    if domain_response and domain_response.status_code == 200:
+                        result = domain_response.json()
+                        content = result['choices'][0]['message']['content']
+                        try:
+                            domain_data = json.loads(content)
+                            inferred_domains = domain_data.get('domains', [])
+                            if text_gen.token_tracker and 'usage' in result:
+                                usage = result['usage']
+                                text_gen.token_tracker.add_completion_tokens(usage.get('prompt_tokens', 0), usage.get('completion_tokens', 0))
+                        except:
+                            pass
+                    
+                    # Infer salary expectation
+                    salary_prompt = f"""Based on this professional profile and Hong Kong market rates, estimate a reasonable minimum monthly salary expectation in HKD.
+
+Profile:
+{profile_text[:2000]}
+
+Return a JSON object with:
+{{
+    "min_salary_hkd_monthly": <number>,
+    "reasoning": "brief explanation"
+}}
+
+Return ONLY valid JSON."""
+                    
+                    salary_payload = {
+                        "messages": [
+                            {"role": "system", "content": "You are a salary advisor for Hong Kong market. Estimate reasonable salary expectations. Return only JSON."},
+                            {"role": "user", "content": salary_prompt}
+                        ],
+                        "max_tokens": 150,
+                        "temperature": 0.2,
+                        "response_format": {"type": "json_object"}
+                    }
+                    
+                    def make_salary_request():
+                        return requests.post(text_gen.url, headers=text_gen.headers, json=salary_payload, timeout=30)
+                    
+                    salary_response = api_call_with_retry(make_salary_request, max_retries=2, initial_delay=2)
+                    inferred_salary = 45000  # Default
+                    if salary_response and salary_response.status_code == 200:
+                        result = salary_response.json()
+                        content = result['choices'][0]['message']['content']
+                        try:
+                            salary_data = json.loads(content)
+                            inferred_salary = int(salary_data.get('min_salary_hkd_monthly', 45000))
+                            if text_gen.token_tracker and 'usage' in result:
+                                usage = result['usage']
+                                text_gen.token_tracker.add_completion_tokens(usage.get('prompt_tokens', 0), usage.get('completion_tokens', 0))
+                        except:
+                            pass
+                    
+                    # Store inferred values
+                    st.session_state.target_domains = inferred_domains
+                    st.session_state.salary_expectation = inferred_salary
+                    
+                    # Build search query from inferred domains
+                    search_query = " ".join(inferred_domains) if inferred_domains else "Hong Kong jobs"
+                    scraper = get_job_scraper()
+                    
+                    with st.spinner("🔄 Fetching jobs and analyzing..."):
+                        # Fetch more jobs initially to allow for filtering
+                        jobs = scraper.search_jobs(search_query, "Hong Kong", 25, "fulltime", "hk")
                         
-                        # Apply salary filter
-                        if salary_expectation > 0:
-                            jobs = filter_jobs_by_salary(jobs, salary_expectation)
+                        if jobs:
+                            # Apply domain filters
+                            if inferred_domains:
+                                jobs = filter_jobs_by_domains(jobs, inferred_domains)
+                            
+                            # Apply salary filter
+                            if inferred_salary > 0:
+                                jobs = filter_jobs_by_salary(jobs, inferred_salary)
                         
                         if not jobs:
                             st.warning("⚠️ No jobs match your filters. Try adjusting your criteria.")
                             return
                         
+                        # Cache with TTL (24 hours)
+                        cache_ttl_hours = 24
                         st.session_state.jobs_cache = {
                             'jobs': jobs,
                             'count': len(jobs),
-                            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            'query': search_query
+                            'timestamp': datetime.now(),
+                            'query': search_query,
+                            'expires_at': datetime.now() + timedelta(hours=cache_ttl_hours)
                         }
                         
                         # Perform semantic matching
@@ -2305,6 +3039,26 @@ def render_sidebar():
                         st.rerun()
                     else:
                         st.error("❌ No jobs found. Please try different filters.")
+        
+        # Token Usage Display
+        st.markdown("---")
+        st.markdown("### 📊 API Usage")
+        token_tracker = get_token_tracker()
+        usage_summary = token_tracker.get_summary()
+        
+        if usage_summary['total_tokens'] > 0:
+            st.metric("Total Tokens", f"{usage_summary['total_tokens']:,}")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.caption(f"Embeddings: {usage_summary['embedding_tokens']:,}")
+            with col2:
+                st.caption(f"Completions: {usage_summary['prompt_tokens'] + usage_summary['completion_tokens']:,}")
+            st.metric("Estimated Cost", f"${usage_summary['estimated_cost_usd']:.4f}")
+            if st.button("🔄 Reset Counter", use_container_width=True):
+                token_tracker.reset()
+                st.rerun()
+        else:
+            st.caption("No API calls made yet in this session")
 
 def display_market_positioning_profile(matched_jobs, user_profile):
     """Display Market Positioning Profile with 4 key metrics"""
@@ -2399,6 +3153,102 @@ def display_market_positioning_profile(matched_jobs, user_profile):
             delta="Unlock 15% more roles",
             delta_color="off"
         )
+
+def display_refine_results_section(matched_jobs, user_profile):
+    """Display Refine Results section with filters"""
+    st.markdown("---")
+    with st.expander("🔧 Refine Results", expanded=False):
+        st.markdown("### Adjust Search Criteria")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Target Domains
+            current_domains = st.session_state.get('target_domains', [])
+            target_domains = st.multiselect(
+                "Target Domains (HK Focus)",
+                options=["FinTech", "ESG & Sustainability", "Data Analytics", "Digital Transformation", 
+                        "Investment Banking", "Consulting", "Technology", "Healthcare", "Education"],
+                default=current_domains,
+                key="refine_domains"
+            )
+        
+        with col2:
+            # Salary Expectations
+            current_salary = st.session_state.get('salary_expectation', 45000)
+            salary_expectation = st.slider(
+                "Min. Monthly Salary Expectation (HKD)",
+                min_value=20000,
+                max_value=150000,
+                value=current_salary,
+                step=5000,
+                key="refine_salary"
+            )
+        
+        if st.button("🔄 Apply Filters & Refresh", type="primary", use_container_width=True):
+            # Update session state
+            st.session_state.target_domains = target_domains
+            st.session_state.salary_expectation = salary_expectation
+            
+            # Re-fetch and filter jobs
+            search_query = " ".join(target_domains) if target_domains else "Hong Kong jobs"
+            scraper = get_job_scraper()
+            
+            with st.spinner("🔄 Refreshing results with new filters..."):
+                jobs = scraper.search_jobs(search_query, "Hong Kong", 25, "fulltime", "hk")
+                
+                if jobs:
+                    # Apply domain filters
+                    if target_domains:
+                        jobs = filter_jobs_by_domains(jobs, target_domains)
+                    
+                    # Apply salary filter
+                    if salary_expectation > 0:
+                        jobs = filter_jobs_by_salary(jobs, salary_expectation)
+                    
+                    if not jobs:
+                        st.warning("⚠️ No jobs match your filters. Try adjusting your criteria.")
+                        return
+                    
+                    # Update cache
+                    cache_ttl_hours = 24
+                    st.session_state.jobs_cache = {
+                        'jobs': jobs,
+                        'count': len(jobs),
+                        'timestamp': datetime.now(),
+                        'query': search_query,
+                        'expires_at': datetime.now() + timedelta(hours=cache_ttl_hours)
+                    }
+                    
+                    # Re-index and search
+                    embedding_gen = get_embedding_generator()
+                    search_engine = SemanticJobSearch(embedding_gen)
+                    search_engine.index_jobs(jobs)
+                    
+                    # Build query from resume/profile
+                    if st.session_state.resume_text:
+                        resume_query = st.session_state.resume_text
+                        if st.session_state.user_profile.get('summary'):
+                            profile_data = f"{st.session_state.user_profile.get('summary', '')} {st.session_state.user_profile.get('experience', '')} {st.session_state.user_profile.get('skills', '')}"
+                            resume_query = f"{resume_query} {profile_data}"
+                    else:
+                        resume_query = f"{st.session_state.user_profile.get('summary', '')} {st.session_state.user_profile.get('experience', '')} {st.session_state.user_profile.get('skills', '')} {st.session_state.user_profile.get('education', '')}"
+                    
+                    results = search_engine.search(resume_query, top_k=min(15, len(jobs)))
+                    
+                    # Calculate skill matches
+                    user_skills = st.session_state.user_profile.get('skills', '')
+                    for result in results:
+                        job_skills = result['job'].get('skills', [])
+                        skill_score, missing_skills = search_engine.calculate_skill_match(user_skills, job_skills)
+                        result['skill_match_score'] = skill_score
+                        result['missing_skills'] = missing_skills
+                    
+                    st.session_state.matched_jobs = results
+                    st.session_state.dashboard_ready = True
+                    st.rerun()
+                else:
+                    st.error("❌ No jobs found. Please try different filters.")
 
 def display_ranked_matches_table(matched_jobs, user_profile):
     """Display Smart Ranked Matches Table with interactive dataframe"""
@@ -2604,6 +3454,153 @@ def display_match_breakdown(matched_jobs, user_profile):
                 st.markdown("---")
                 st.link_button("🚀 Apply to Job", job_url, use_container_width=True, type="secondary")
 
+def generate_pdf_from_json(resume_data, filename="resume.pdf"):
+    """Generate a professional PDF file from structured resume JSON"""
+    try:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        
+        # Create PDF in memory
+        pdf_io = BytesIO()
+        doc = SimpleDocTemplate(pdf_io, pagesize=letter,
+                               rightMargin=0.75*inch, leftMargin=0.75*inch,
+                               topMargin=0.5*inch, bottomMargin=0.5*inch)
+        
+        # Container for the 'Flowable' objects
+        elements = []
+        styles = getSampleStyleSheet()
+        
+        # Custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            textColor='black',
+            spaceAfter=6,
+            alignment=TA_CENTER,
+            fontName='Helvetica-Bold'
+        )
+        
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=12,
+            textColor='black',
+            spaceAfter=6,
+            spaceBefore=12,
+            fontName='Helvetica-Bold'
+        )
+        
+        normal_style = ParagraphStyle(
+            'CustomNormal',
+            parent=styles['Normal'],
+            fontSize=10,
+            textColor='black',
+            spaceAfter=6,
+            leading=12
+        )
+        
+        contact_style = ParagraphStyle(
+            'CustomContact',
+            parent=styles['Normal'],
+            fontSize=9,
+            textColor='black',
+            spaceAfter=12,
+            alignment=TA_CENTER
+        )
+        
+        # Header Section
+        header = resume_data.get('header', {})
+        if header.get('name'):
+            elements.append(Paragraph(header['name'], title_style))
+            elements.append(Spacer(1, 0.1*inch))
+        
+        # Contact information
+        contact_info = []
+        if header.get('email'):
+            contact_info.append(header['email'])
+        if header.get('phone'):
+            contact_info.append(header['phone'])
+        if header.get('location'):
+            contact_info.append(header['location'])
+        if header.get('linkedin'):
+            contact_info.append(header['linkedin'])
+        if header.get('portfolio'):
+            contact_info.append(header['portfolio'])
+        
+        if contact_info:
+            elements.append(Paragraph(' | '.join(contact_info), contact_style))
+            elements.append(Spacer(1, 0.1*inch))
+        
+        # Professional Title
+        if header.get('title'):
+            elements.append(Paragraph(header['title'], contact_style))
+            elements.append(Spacer(1, 0.15*inch))
+        
+        # Summary
+        if resume_data.get('summary'):
+            elements.append(Paragraph('Professional Summary', heading_style))
+            elements.append(Paragraph(resume_data['summary'], normal_style))
+            elements.append(Spacer(1, 0.1*inch))
+        
+        # Skills
+        skills = resume_data.get('skills_highlighted', [])
+        if skills:
+            elements.append(Paragraph('Key Skills', heading_style))
+            skills_text = ' • '.join(skills)
+            elements.append(Paragraph(skills_text, normal_style))
+            elements.append(Spacer(1, 0.1*inch))
+        
+        # Experience
+        experience = resume_data.get('experience', [])
+        if experience:
+            elements.append(Paragraph('Professional Experience', heading_style))
+            for exp in experience:
+                # Company and Title
+                exp_header_parts = []
+                if exp.get('title'):
+                    exp_header_parts.append(f"<b>{exp['title']}</b>")
+                if exp.get('company'):
+                    exp_header_parts.append(f" at {exp['company']}")
+                if exp.get('dates'):
+                    exp_header_parts.append(f" | <i>{exp['dates']}</i>")
+                
+                if exp_header_parts:
+                    elements.append(Paragraph(''.join(exp_header_parts), normal_style))
+                
+                # Bullet points
+                bullets = exp.get('bullets', [])
+                for bullet in bullets:
+                    if bullet.strip():
+                        elements.append(Paragraph(f"• {bullet}", normal_style))
+                
+                elements.append(Spacer(1, 0.1*inch))
+        
+        # Education
+        if resume_data.get('education'):
+            elements.append(Paragraph('Education', heading_style))
+            elements.append(Paragraph(resume_data['education'], normal_style))
+            elements.append(Spacer(1, 0.1*inch))
+        
+        # Certifications
+        if resume_data.get('certifications'):
+            elements.append(Paragraph('Certifications & Awards', heading_style))
+            elements.append(Paragraph(resume_data['certifications'], normal_style))
+        
+        # Build PDF
+        doc.build(elements)
+        pdf_io.seek(0)
+        return pdf_io
+        
+    except Exception as e:
+        st.error(f"Error generating PDF: {e}")
+        return None
+
 def format_resume_as_text(resume_data):
     """Format structured resume JSON as plain text"""
     text = []
@@ -2702,6 +3699,12 @@ def main():
     
     # Display Market Positioning Profile (Top Section)
     display_market_positioning_profile(
+        st.session_state.matched_jobs,
+        st.session_state.user_profile
+    )
+    
+    # Display Refine Results Section
+    display_refine_results_section(
         st.session_state.matched_jobs,
         st.session_state.user_profile
     )

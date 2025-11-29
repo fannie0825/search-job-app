@@ -4,3 +4,6 @@ numpy
 scikit-learn
 PyPDF2
 python-docx
+chromadb
+tiktoken
+reportlab
