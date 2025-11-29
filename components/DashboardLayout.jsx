@@ -49,7 +49,8 @@ const DashboardLayout = () => {
 
       // Get job matches
       const matches = await ApiService.getJobMatches(profileData, filters);
-      setJobMatches(matches.jobs || matches);
+      // Handle both { jobs: [...] } and [...] formats
+      setJobMatches(Array.isArray(matches) ? matches : (matches?.jobs || []));
 
       success('Analysis complete! Your market positioning and job matches are ready.');
     } catch (err) {
