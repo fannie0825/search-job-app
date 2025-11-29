@@ -9,17 +9,13 @@ const API_BASE_URL = config.apiUrl;
 const USE_MOCK_API = config.useMockApi;
 
 // Import mock API for development
-let mockApiService = null;
-if (USE_MOCK_API) {
-  import('./mockApi').then(module => {
-    mockApiService = module.default;
-  });
-}
+import mockApiServiceModule from './mockApi';
+const mockApiService = USE_MOCK_API ? mockApiServiceModule.default : null;
 
 class ApiService {
   // Use mock API if enabled or if API URL is not set
   _useMock() {
-    return USE_MOCK_API && mockApiService;
+    return USE_MOCK_API && mockApiService !== null;
   }
   /**
    * Upload resume file
