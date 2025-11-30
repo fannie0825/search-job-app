@@ -22,7 +22,7 @@ class ErrorBoundary extends React.Component {
 
   getErrorMessage() {
     const { error } = this.state;
-    if (!error) return 'An unexpected error occurred';
+    if (!error && error !== false) return 'An unexpected error occurred';
     
     // Handle different error types
     if (error instanceof Error) {
@@ -30,6 +30,12 @@ class ErrorBoundary extends React.Component {
     }
     if (typeof error === 'string') {
       return error;
+    }
+    if (typeof error === 'boolean') {
+      return error ? 'An error occurred (true)' : 'An error occurred (false)';
+    }
+    if (typeof error === 'number') {
+      return `An error occurred (Error code: ${error})`;
     }
     if (error && typeof error === 'object' && 'message' in error) {
       return String(error.message);
@@ -48,6 +54,10 @@ class ErrorBoundary extends React.Component {
     }
     if (error && typeof error === 'object' && 'stack' in error) {
       return String(error.stack);
+    }
+    // For primitive types (boolean, number, string), show the error value
+    if (error !== null && error !== undefined && (typeof error === 'boolean' || typeof error === 'number' || typeof error === 'string')) {
+      return `Error value: ${String(error)}\n${errorInfo?.componentStack || 'No component stack available'}`;
     }
     return 'No stack trace available';
   }
