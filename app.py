@@ -1530,55 +1530,134 @@ class LinkedInJobsAPI:
     """Alternative job source using LinkedIn Jobs API via RapidAPI as fallback."""
     def __init__(self, api_key):
         self.api_key = api_key
-        self.url = "https://linkedin-jobs-search.p.rapidapi.com/"
+        self.base_url = "https://linkedin-job-search-api.p.rapidapi.com"
         self.headers = {
-            'X-RapidAPI-Key': api_key,
-            'X-RapidAPI-Host': 'linkedin-jobs-search.p.rapidapi.com',
-            'Content-Type': 'application/json'
+            'x-rapidapi-key': api_key,
+            'x-rapidapi-host': 'linkedin-job-search-api.p.rapidapi.com'
         }
         # Initialize rate limiter (shares the same limit as Indeed API)
         self.rate_limiter = RateLimiter(RAPIDAPI_MAX_REQUESTS_PER_MINUTE)
     
     def search_jobs(self, query, location="Hong Kong", max_rows=15, job_type="fulltime", country="hk"):
         """Search jobs from LinkedIn Jobs API."""
-        payload = {
-            "search_terms": query,
-            "location": location,
-            "page": "1"
-        }
-        
         try:
             # Enforce rate limiting before making the request
             self.rate_limiter.wait_if_needed()
             
-            def make_request():
-                return requests.get(self.url, headers=self.headers, params=payload, timeout=60)
+            # Build query parameters
+            # The API endpoint /active-jb-1h supports offset and description_type
+            # We'll need to fetch multiple pages if needed to get max_rows
+            all_jobs = []
+            offset = 0
+            page_size = min(max_rows, 25)  # Fetch in batches
             
-            response = api_call_with_retry(make_request, max_retries=2, initial_delay=2)
+            while len(all_jobs) < max_rows:
+                # Build endpoint with query parameters
+                # Try to include query and location if API supports them
+                params = {
+                    "offset": offset,
+                    "description_type": "text"
+                }
+                # Add query/location if provided (API might support these)
+                if query:
+                    params["query"] = query
+                if location:
+                    params["location"] = location
+                
+                # Build query string with URL encoding
+                from urllib.parse import urlencode
+                query_string = urlencode(params)
+                endpoint = f"/active-jb-1h?{query_string}"
+                
+                def make_request():
+                    return requests.get(f"{self.base_url}{endpoint}", headers=self.headers, timeout=60)
+                
+                response = api_call_with_retry(make_request, max_retries=2, initial_delay=2)
+                
+                if response and response.status_code == 200:
+                    try:
+                        data = response.json()
+                        
+                        # Parse response - could be list or dict
+                        job_list = []
+                        if isinstance(data, list):
+                            job_list = data
+                        elif isinstance(data, dict):
+                            # Try common response formats
+                            if 'jobs' in data:
+                                job_list = data['jobs']
+                            elif 'data' in data:
+                                job_list = data['data']
+                            elif 'results' in data:
+                                job_list = data['results']
+                            else:
+                                # If it's a single job object, wrap it
+                                job_list = [data] if data else []
+                        
+                        # Filter jobs by query/location if possible
+                        filtered_jobs = self._filter_jobs(job_list, query, location)
+                        
+                        for job_data in filtered_jobs:
+                            if len(all_jobs) >= max_rows:
+                                break
+                            parsed_job = self._parse_job(job_data)
+                            if parsed_job:
+                                all_jobs.append(parsed_job)
+                        
+                        # If we got fewer jobs than requested, try next page
+                        if len(job_list) < page_size or len(all_jobs) >= max_rows:
+                            break
+                        
+                        offset += page_size
+                        
+                    except (json.JSONDecodeError, KeyError, TypeError) as e:
+                        st.warning(f"⚠️ Error parsing LinkedIn API response: {str(e)[:100]}")
+                        break
+                else:
+                    # If we get an error, stop trying
+                    if response:
+                        if response.status_code == 429:
+                            st.warning("⚠️ LinkedIn API rate limit reached. Returning partial results.")
+                        else:
+                            st.warning(f"⚠️ LinkedIn API error: {response.status_code}")
+                    break
             
-            if response and response.status_code == 200:
-                data = response.json()
-                jobs = []
-                
-                # Parse LinkedIn Jobs API response format
-                if isinstance(data, list):
-                    for job_data in data[:max_rows]:
-                        parsed_job = self._parse_job(job_data)
-                        if parsed_job:
-                            jobs.append(parsed_job)
-                elif isinstance(data, dict) and 'jobs' in data:
-                    for job_data in data['jobs'][:max_rows]:
-                        parsed_job = self._parse_job(job_data)
-                        if parsed_job:
-                            jobs.append(parsed_job)
-                
-                return jobs
-            else:
-                return []
+            return all_jobs[:max_rows]
                 
         except Exception as e:
-            # Silently fail for fallback source
+            # Log error but don't fail completely
+            st.warning(f"⚠️ LinkedIn API error: {str(e)[:100]}")
             return []
+    
+    def _filter_jobs(self, job_list, query, location):
+        """Filter jobs by query and location if the API doesn't support it natively."""
+        if not query and not location:
+            return job_list
+        
+        filtered = []
+        query_lower = query.lower() if query else ""
+        location_lower = location.lower() if location else ""
+        
+        for job in job_list:
+            # Check if job matches query (in title, description, or company)
+            matches_query = True
+            if query_lower:
+                title = str(job.get('title', '') or job.get('job_title', '')).lower()
+                company = str(job.get('company', '') or job.get('company_name', '')).lower()
+                description = str(job.get('description', '') or job.get('job_description', '')).lower()
+                matches_query = (query_lower in title or query_lower in company or query_lower in description)
+            
+            # Check if job matches location
+            matches_location = True
+            if location_lower:
+                job_location = str(job.get('location', '') or job.get('job_location', '')).lower()
+                matches_location = location_lower in job_location or "remote" in job_location or "anywhere" in job_location
+            
+            if matches_query and matches_location:
+                filtered.append(job)
+        
+        # If filtering removed all jobs, return original list (API might not support filtering)
+        return filtered if filtered else job_list
     
     def _parse_job(self, job_data):
         """Parse LinkedIn job data into standard format."""
