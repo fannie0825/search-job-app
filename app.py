@@ -1413,8 +1413,13 @@ class RateLimiter:
         self.request_times.append(time.time())
 
 
+class QuotaExceededError(Exception):
+    """Raised when API quota is exceeded (429 or quota-related errors)."""
+    pass
+
+
 class IndeedScraperAPI:
-    def __init__(self, api_key):
+    def __init__(self, api_key, skip_if_quota_exceeded=False):
         self.api_key = api_key
         self.url = "https://indeed-scraper-api.p.rapidapi.com/api/job"
         self.headers = {
@@ -1424,6 +1429,7 @@ class IndeedScraperAPI:
         }
         # Initialize rate limiter
         self.rate_limiter = RateLimiter(RAPIDAPI_MAX_REQUESTS_PER_MINUTE)
+        self.skip_if_quota_exceeded = skip_if_quota_exceeded
     
     def search_jobs(self, query, location="Hong Kong", max_rows=15, job_type="fulltime", country="hk"):
         payload = {
@@ -1464,10 +1470,23 @@ class IndeedScraperAPI:
             else:
                 if response:
                     if response.status_code == 429:
-                        st.error("🚫 Rate limit reached for job search API. Please wait a few minutes and try again.")
+                        error_msg = "🚫 Indeed API quota exceeded (429). Switching to LinkedIn..."
+                        if self.skip_if_quota_exceeded:
+                            st.warning(error_msg)
+                            raise QuotaExceededError("Indeed API quota exceeded")
+                        else:
+                            st.error("🚫 Rate limit reached for job search API. Please wait a few minutes and try again.")
                     else:
                         error_detail = response.text[:200] if response.text else "No error details"
-                        st.error(f"API Error: {response.status_code} - {error_detail}")
+                        # Check if error indicates quota exceeded
+                        if "quota" in error_detail.lower() or "exceeded" in error_detail.lower():
+                            if self.skip_if_quota_exceeded:
+                                st.warning("🚫 Indeed API quota exceeded. Switching to LinkedIn...")
+                                raise QuotaExceededError("Indeed API quota exceeded")
+                            else:
+                                st.error(f"API Error: {response.status_code} - {error_detail}")
+                        else:
+                            st.error(f"API Error: {response.status_code} - {error_detail}")
                 return []
                 
         except Exception as e:
@@ -1583,28 +1602,39 @@ class LinkedInJobsAPI:
 
 class MultiSourceJobAggregator:
     """Aggregates jobs from multiple sources with failover mechanism."""
-    def __init__(self, primary_source, fallback_source=None):
+    def __init__(self, primary_source, fallback_source=None, prefer_linkedin=False):
         self.primary_source = primary_source
         self.fallback_source = fallback_source
+        self.prefer_linkedin = prefer_linkedin
         self.last_error = None
+        self.indeed_quota_exceeded = False  # Track if Indeed quota is permanently exceeded
     
     def search_jobs(self, query, location="Hong Kong", max_rows=15, job_type="fulltime", country="hk"):
         """Search jobs from primary source, fallback to secondary if primary fails."""
         all_jobs = []
         sources_used = []
         
-        # Try primary source
-        try:
-            jobs = self.primary_source.search_jobs(query, location, max_rows, job_type, country)
-            if jobs:
-                all_jobs.extend(jobs)
-                sources_used.append("Indeed")
-        except Exception as e:
-            self.last_error = f"Primary source error: {str(e)}"
-            st.warning(f"⚠️ Primary job source unavailable: {str(e)[:100]}")
+        # If Indeed quota is exceeded or LinkedIn is preferred, skip Indeed entirely
+        skip_indeed = self.indeed_quota_exceeded or self.prefer_linkedin or (self.primary_source is None)
         
-        # Try fallback source if primary failed or returned insufficient results
-        if self.fallback_source and (len(all_jobs) < max_rows // 2):
+        # Try primary source (Indeed) unless we're skipping it
+        if not skip_indeed and self.primary_source:
+            try:
+                jobs = self.primary_source.search_jobs(query, location, max_rows, job_type, country)
+                if jobs:
+                    all_jobs.extend(jobs)
+                    sources_used.append("Indeed")
+            except QuotaExceededError:
+                # Indeed quota exceeded - mark it and skip Indeed for future requests
+                self.indeed_quota_exceeded = True
+                st.warning("⚠️ Indeed API quota exceeded. Using LinkedIn only for this session.")
+                skip_indeed = True
+            except Exception as e:
+                self.last_error = f"Primary source error: {str(e)}"
+                st.warning(f"⚠️ Primary job source unavailable: {str(e)[:100]}")
+        
+        # Try fallback source (LinkedIn) if primary failed, returned insufficient results, or we're skipping Indeed
+        if self.fallback_source and (skip_indeed or len(all_jobs) < max_rows // 2):
             try:
                 fallback_jobs = self.fallback_source.search_jobs(query, location, max_rows - len(all_jobs), job_type, country)
                 if fallback_jobs:
@@ -1613,6 +1643,7 @@ class MultiSourceJobAggregator:
             except Exception as e:
                 if not self.last_error:
                     self.last_error = f"Fallback source error: {str(e)}"
+                st.warning(f"⚠️ LinkedIn API error: {str(e)[:100]}")
         
         # Remove duplicates based on title + company
         seen = set()
@@ -1625,6 +1656,8 @@ class MultiSourceJobAggregator:
         
         if sources_used:
             st.info(f"📊 Jobs aggregated from: {', '.join(sources_used)} ({len(unique_jobs)} unique jobs)")
+        elif not all_jobs:
+            st.error("❌ No jobs found from any source. Please check your API configurations.")
         
         return unique_jobs[:max_rows]
 
@@ -2127,6 +2160,10 @@ def get_job_scraper():
     Uses RAPIDAPI_KEY for both primary (Indeed) and fallback (LinkedIn) sources.
     If LINKEDIN_API_KEY is set, it will be used for the fallback source instead.
     Both APIs typically use the same RapidAPI key if subscribed to both.
+    
+    Configuration options:
+    - USE_LINKEDIN_ONLY: If True, skip Indeed entirely and use LinkedIn only
+    - SKIP_INDEED_IF_QUOTA_EXCEEDED: If True, automatically skip Indeed when quota is exceeded
     """
     if 'job_aggregator' not in st.session_state:
         # Primary source: Indeed (required)
@@ -2135,7 +2172,13 @@ def get_job_scraper():
             st.error("⚠️ RAPIDAPI_KEY is required in secrets. Please configure it in your .streamlit/secrets.toml")
             return None
         
-        primary_source = IndeedScraperAPI(RAPIDAPI_KEY)
+        # Check if we should prefer LinkedIn or skip Indeed when quota exceeded
+        use_linkedin_only = st.secrets.get("USE_LINKEDIN_ONLY", "").lower() in ("true", "1", "yes")
+        skip_if_quota_exceeded = st.secrets.get("SKIP_INDEED_IF_QUOTA_EXCEEDED", "").lower() in ("true", "1", "yes")
+        
+        primary_source = None
+        if not use_linkedin_only:
+            primary_source = IndeedScraperAPI(RAPIDAPI_KEY, skip_if_quota_exceeded=skip_if_quota_exceeded)
         
         # Fallback source: LinkedIn (optional)
         # Use separate key if provided, otherwise use the same RapidAPI key
@@ -2150,7 +2193,14 @@ def get_job_scraper():
             # The aggregator will work with just the primary source
             pass
         
-        st.session_state.job_aggregator = MultiSourceJobAggregator(primary_source, fallback_source)
+        # If LinkedIn only is enabled, make LinkedIn the primary source
+        if use_linkedin_only and fallback_source:
+            st.info("ℹ️ Using LinkedIn only (Indeed skipped per configuration)")
+            primary_source = None
+            # Swap: LinkedIn becomes primary, Indeed becomes fallback (but we won't use Indeed)
+            st.session_state.job_aggregator = MultiSourceJobAggregator(fallback_source, None, prefer_linkedin=True)
+        else:
+            st.session_state.job_aggregator = MultiSourceJobAggregator(primary_source, fallback_source, prefer_linkedin=use_linkedin_only)
     
     return st.session_state.job_aggregator
 
