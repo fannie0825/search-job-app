@@ -21,7 +21,12 @@ Used for two purposes:
   - Converts user search queries into embeddings
   - Enables semantic similarity matching
 
-**Code Location**: `APIMEmbeddingGenerator` class (lines 92-139)
+**Code Location**: `APIMEmbeddingGenerator` class (lines 820-962)
+
+**Key Methods**:
+- `get_embedding(text)`: Returns `(embedding, tokens_used)` tuple
+- `get_embeddings_batch(texts, batch_size)`: Returns `(embeddings, total_tokens_used)` tuple
+- Both methods use `api_call_with_retry()` for automatic rate limit handling
 
 **Example Request**:
 ```python
@@ -221,6 +226,43 @@ All API calls include:
 - User-friendly error messages
 - Graceful fallbacks where possible
 
+## 🔄 Rate Limiting & Retry Logic
+
+### Exponential Backoff Strategy
+
+The application uses a sophisticated rate limiting strategy to handle API rate limits gracefully:
+
+1. **`api_call_with_retry()` Function** (lines 173-240):
+   - Implements exponential backoff for 429 (Rate Limit) errors
+   - Automatically retries with increasing delays (1s, 2s, 4s, etc.)
+   - Respects server-provided `Retry-After` headers when available
+   - Maximum delay capped at 60 seconds (configurable)
+   - Shows user-friendly progress messages during retries
+
+2. **Embedding API Rate Limiting**:
+   - **No conflicting throttling**: Removed basic 100ms throttling that conflicted with exponential backoff
+   - **Batch processing**: Uses configurable batch delays (`EMBEDDING_BATCH_DELAY`) between successful batches
+   - **Automatic retry**: All embedding calls use `api_call_with_retry()` which handles 429 errors automatically
+   - **Token tracking**: Returns token usage instead of mutating cached objects (prevents Streamlit cache issues)
+
+3. **Configuration** (via environment variables or Streamlit secrets):
+   - `EMBEDDING_BATCH_SIZE`: Number of texts to process per batch (default: 20)
+   - `EMBEDDING_BATCH_DELAY`: Delay in seconds between batches (default: 1)
+   - Retry parameters: `max_retries=3`, `initial_delay=1`, `max_delay=60`
+
+### Token Usage Tracking
+
+- **Embedding Generator**: Returns `(embedding, tokens_used)` tuple instead of mutating cached objects
+- **Callers**: Update `st.session_state.token_tracker` directly to avoid cache invalidation
+- **Benefits**: Prevents Streamlit cache confusion and ensures accurate token tracking
+
+### Best Practices
+
+1. **Let exponential backoff handle rate limits**: Don't add additional throttling that conflicts with retry logic
+2. **Avoid mutating cached objects**: Return values instead of mutating cached resources
+3. **Respect server hints**: The retry logic automatically uses `Retry-After` headers when provided
+4. **User feedback**: Progress messages inform users when rate limits are encountered
+
 ## 📚 Additional Resources
 
 - [Azure OpenAI Documentation](https://learn.microsoft.com/azure/ai-services/openai/)
@@ -229,4 +271,17 @@ All API calls include:
 
 ---
 
-**Last Updated**: 2025-11-28
+**Last Updated**: 2025-01-28
+
+## 🔧 Recent Improvements (2025-01-28)
+
+### Rate Limiting Fixes
+- ✅ Removed conflicting 100ms throttling that interfered with exponential backoff
+- ✅ Removed `rate_limit_encountered` flag (redundant with `api_call_with_retry()`)
+- ✅ Simplified rate limit handling to rely solely on exponential backoff
+- ✅ Fixed token tracker mutation issue in cached objects
+
+### Token Tracking Improvements
+- ✅ Embedding methods now return token usage instead of mutating cached objects
+- ✅ Callers update `st.session_state.token_tracker` directly
+- ✅ Prevents Streamlit cache invalidation issues
