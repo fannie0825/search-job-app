@@ -3160,14 +3160,18 @@ def display_resume_generator():
     
     # Generate resume button
     if st.button("🚀 Generate Tailored Resume", type="primary", use_container_width=True):
-        with st.spinner("🤖 Verifying profile accuracy..."):
-            # Second pass: Verify profile accuracy before generating resume
-            raw_resume_text = st.session_state.get('resume_text')
-            if raw_resume_text:
+        # Second pass: Verify profile accuracy before generating resume
+        raw_resume_text = st.session_state.get('resume_text')
+        profile_to_use = st.session_state.user_profile
+        
+        if raw_resume_text:
+            with st.spinner("🤖 Verifying profile accuracy..."):
                 verified_profile = verify_profile_accuracy(
                     st.session_state.user_profile,
                     raw_resume_text
                 )
+                # Use verified profile for resume generation
+                profile_to_use = verified_profile
                 # Update session state with verified profile
                 st.session_state.user_profile = verified_profile
         
@@ -3176,10 +3180,8 @@ def display_resume_generator():
             if text_gen is None:
                 st.error("⚠️ Azure OpenAI is not configured. Please configure AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT in your Streamlit secrets.")
                 return
-            # Get raw resume text if available
-            raw_resume_text = st.session_state.get('resume_text')
             resume_data = text_gen.generate_resume(
-                st.session_state.user_profile, 
+                profile_to_use, 
                 job,
                 raw_resume_text=raw_resume_text
             )
