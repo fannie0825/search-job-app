@@ -2531,7 +2531,7 @@ def filter_jobs_by_salary(jobs, min_salary):
 
 def display_job_card(result, index):
     job = result['job']
-    score = result['similarity_score']
+    score = result.get('similarity_score', 0.0)
     
     remote_badge = "🏠 Remote" if job['is_remote'] else ""
     rating = job['company_rating']
@@ -3769,7 +3769,7 @@ Return ONLY valid JSON."""
                         jobs_to_index_limit = _determine_index_limit(len(jobs), desired_matches)
                         top_match_count = min(desired_matches, jobs_to_index_limit)
                         search_engine = SemanticJobSearch(embedding_gen)
-                        # search_engine.index_jobs(jobs, max_jobs_to_index=jobs_to_index_limit)  # Disabled to save embedding token costs and avoid Rate Limit 429 errors
+                        search_engine.index_jobs(jobs, max_jobs_to_index=jobs_to_index_limit)
                         
                         # Use pre-computed resume embedding if available (simplified - no query string needed)
                         resume_embedding = st.session_state.get('resume_embedding')
@@ -3801,9 +3801,14 @@ Return ONLY valid JSON."""
                                 skill_score, missing_skills = search_engine.calculate_skill_match(user_skills, job_skills)
                                 result['skill_match_score'] = skill_score
                                 result['missing_skills'] = missing_skills
+                                
+                                # Calculate combined match score (weighted: 60% semantic, 40% skill)
+                                semantic_score = result.get('similarity_score', 0.0)
+                                combined_score = (semantic_score * 0.6) + (skill_score * 0.4)
+                                result['combined_match_score'] = combined_score
                             
-                            # Sort results by skill_match_score (highest to lowest)
-                            results.sort(key=lambda x: x.get('skill_match_score', 0.0), reverse=True)
+                            # Sort results by combined match score (highest to lowest)
+                            results.sort(key=lambda x: x.get('combined_match_score', 0.0), reverse=True)
                             
                             st.session_state.matched_jobs = results
                             st.session_state.dashboard_ready = True
@@ -4148,9 +4153,14 @@ def display_refine_results_section(matched_jobs, user_profile):
                         skill_score, missing_skills = search_engine.calculate_skill_match(user_skills, job_skills)
                         result['skill_match_score'] = skill_score
                         result['missing_skills'] = missing_skills
+                        
+                        # Calculate combined match score (weighted: 60% semantic, 40% skill)
+                        semantic_score = result.get('similarity_score', 0.0)
+                        combined_score = (semantic_score * 0.6) + (skill_score * 0.4)
+                        result['combined_match_score'] = combined_score
                     
-                    # Sort results by skill_match_score (highest to lowest)
-                    results.sort(key=lambda x: x.get('skill_match_score', 0.0), reverse=True)
+                    # Sort results by combined match score (highest to lowest)
+                    results.sort(key=lambda x: x.get('combined_match_score', 0.0), reverse=True)
                     
                     st.session_state.matched_jobs = results
                     st.session_state.dashboard_ready = True
@@ -4193,18 +4203,25 @@ def display_ranked_matches_table(matched_jobs, user_profile):
             skill_score, missing_skills = calc_skill_match(user_skills, job_skills)
             result['skill_match_score'] = skill_score
             result['missing_skills'] = missing_skills
+        
+        # Calculate combined match score if not already present
+        if 'combined_match_score' not in result:
+            semantic_score = result.get('similarity_score', 0.0)
+            skill_score = result.get('skill_match_score', 0.0)
+            combined_score = (semantic_score * 0.6) + (skill_score * 0.4)
+            result['combined_match_score'] = combined_score
     
-    # Sort matched_jobs by skill_match_score (highest to lowest)
-    matched_jobs.sort(key=lambda x: x.get('skill_match_score', 0.0), reverse=True)
+    # Sort matched_jobs by combined match score (highest to lowest)
+    matched_jobs.sort(key=lambda x: x.get('combined_match_score', 0.0), reverse=True)
     
     # Create DataFrame
     table_data = []
     for i, result in enumerate(matched_jobs):
         job = result['job']
-        semantic_score = result['similarity_score']
+        semantic_score = result.get('similarity_score', 0.0)
         skill_score = result.get('skill_match_score', 0.0)
-        # Use skill_score as the primary match score
-        match_score = skill_score
+        # Use combined match score (60% semantic, 40% skill)
+        match_score = result.get('combined_match_score', (semantic_score * 0.6) + (skill_score * 0.4))
         
         # Get key matching skills (first 3-4 skills from job that user has)
         job_skills = job.get('skills', [])
@@ -4294,7 +4311,7 @@ def display_match_breakdown(matched_jobs, user_profile):
     
     selected_result = matched_jobs[st.session_state.selected_job_index]
     job = selected_result['job']
-    semantic_score = selected_result['similarity_score']
+    semantic_score = selected_result.get('similarity_score', 0.0)
     skill_score = selected_result.get('skill_match_score', 0.0)
     missing_skills = selected_result.get('missing_skills', [])
     
