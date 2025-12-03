@@ -21,11 +21,29 @@ font = "sans serif"                 # Streamlit default (Inter/Roboto loaded via
 [server]
 # Enable file watcher for development
 fileWatcherType = "auto"
+# Enable CORS (important for Streamlit Cloud)
+enableCORS = false
+# Enable XSRF protection
+enableXsrfProtection = false
+# Port configuration (Streamlit Cloud handles this automatically)
+port = 8501
+# Address binding
+address = "0.0.0.0"
+# Maximum upload size (in MB)
+maxUploadSize = 200
+# Maximum message size (in MB)
+maxMessageSize = 200
+# Enable WebSocket compression
+enableWebsocketCompression = true
+# Run on save (development only)
+runOnSave = false
 
 # Browser configuration
 [browser]
 # Gather usage stats (optional - set to false to disable)
 gatherUsageStats = false
+# Server address (Streamlit Cloud handles this)
+serverAddress = "localhost"
 
 # UI Configuration
 [ui]

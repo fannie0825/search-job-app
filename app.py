@@ -37,8 +37,10 @@ def _coerce_positive_int(value, default, minimum=1):
 def _get_config_int(key, default, minimum=1):
     """Look up configuration values from Streamlit secrets or environment."""
     try:
+        # Safely access secrets - handle case where Streamlit might not be fully initialized
         secrets_value = st.secrets.get(key)
-    except Exception:
+    except (AttributeError, RuntimeError, KeyError, Exception):
+        # Handle case where Streamlit isn't initialized yet, secrets aren't available, or key doesn't exist
         secrets_value = None
     env_value = os.getenv(key)
     candidate = secrets_value if secrets_value not in (None, "") else env_value
@@ -46,6 +48,7 @@ def _get_config_int(key, default, minimum=1):
 
 
 # Reduced default batch size to avoid rate limits (can be overridden via env var)
+# Note: These are evaluated at module import time, but _get_config_int handles errors gracefully
 DEFAULT_EMBEDDING_BATCH_SIZE = _get_config_int("EMBEDDING_BATCH_SIZE", 20, minimum=5)
 DEFAULT_MAX_JOBS_TO_INDEX = _get_config_int("MAX_JOBS_TO_INDEX", 50, minimum=30)
 # Rate limiting: delay between batches in seconds (gentle spacing between successful batches)
