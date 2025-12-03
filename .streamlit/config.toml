@@ -18,9 +18,9 @@ textColor = "#F4F4F4"               # Off-white text
 font = "sans serif"                 # Streamlit default (Inter/Roboto loaded via CSS)
 
 # Streamlit Cloud Configuration
-# Optimized for Streamlit Cloud deployment
+# Optimized for Streamlit Cloud deployment with WebSocket stability
 [server]
-# File watcher disabled for Streamlit Cloud (not needed)
+# File watcher disabled for Streamlit Cloud (not needed, reduces resource usage)
 fileWatcherType = "none"
 # CORS enabled for Streamlit Cloud
 enableCORS = true
@@ -28,11 +28,12 @@ enableCORS = true
 enableXsrfProtection = true
 # Port and address are handled automatically by Streamlit Cloud
 # Maximum upload size (in MB) - optimized for resume uploads
-maxUploadSize = 200
-# Maximum message size (in MB) - for large API responses
-maxMessageSize = 200
-# WebSocket compression enabled for better performance on Streamlit Cloud
-enableWebsocketCompression = true
+maxUploadSize = 50
+# Maximum message size (in MB) - reduced for WebSocket stability
+maxMessageSize = 50
+# WebSocket compression - DISABLED to improve connection stability
+# Compression can cause issues with some proxy/CDN configurations
+enableWebsocketCompression = false
 # Headless mode for Streamlit Cloud
 headless = true
 # Run on save disabled (not applicable for Streamlit Cloud)
@@ -54,6 +55,15 @@ hideSidebarNav = false
 [global]
 # Production mode (not development)
 developmentMode = false
+
+# Runner Configuration - prevents script timeouts
+[runner]
+# Increased magic enabled for better compatibility
+magicEnabled = true
+# Allow large outputs without killing the script
+postScriptGC = true
+# Fast reruns enabled
+fastReruns = true
 
 # Logger Configuration
 [logger]

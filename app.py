@@ -1,12 +1,28 @@
 import warnings
 import os
+import gc
 warnings.filterwarnings('ignore')
+
 # Streamlit Cloud optimization: Set log level to error for production
 os.environ['STREAMLIT_LOG_LEVEL'] = 'error'
 # Streamlit Cloud: Disable telemetry
 os.environ['STREAMLIT_BROWSER_GATHER_USAGE_STATS'] = 'false'
+# Reduce SQLite memory footprint (used by ChromaDB)
+os.environ['SQLITE_TMPDIR'] = '/tmp'
 
 import streamlit as st
+
+# Set page config FIRST (must be first Streamlit command)
+st.set_page_config(
+    page_title="CareerLens - AI Career Intelligence",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        'About': "CareerLens - AI-powered career intelligence platform"
+    }
+)
+
 import requests
 import numpy as np
 import pandas as pd
@@ -25,6 +41,9 @@ from chromadb.config import Settings
 import tiktoken
 import hashlib
 import base64
+
+# Periodic garbage collection to reduce memory pressure on Streamlit Cloud
+gc.collect()
 
 
 # -----------------------------------------------------------------------------
@@ -218,6 +237,23 @@ def _calculate_exponential_delay(initial_delay, attempt, max_delay):
     return max(1, min(initial_delay * (2 ** attempt), max_delay))
 
 
+def _chunked_sleep(delay, message_prefix=""):
+    """Sleep in small chunks to prevent WebSocket timeout on Streamlit Cloud."""
+    if delay <= 5:
+        time.sleep(delay)
+        return
+    
+    status_placeholder = st.empty()
+    remaining = int(delay)
+    while remaining > 0:
+        if message_prefix:
+            status_placeholder.caption(f"{message_prefix} ({remaining}s remaining...)")
+        chunk = min(5, remaining)  # Max 5 seconds at a time
+        time.sleep(chunk)
+        remaining -= chunk
+    status_placeholder.empty()
+
+
 def api_call_with_retry(func, max_retries=3, initial_delay=1, max_delay=60):
     """
     Execute an API call with exponential backoff retry logic for rate limit errors (429).
@@ -256,7 +292,8 @@ def api_call_with_retry(func, max_retries=3, initial_delay=1, max_delay=60):
                     else:
                         # Use caption for subsequent retries (less intrusive)
                         st.caption(f"⏳ Retrying... ({attempt + 1}/{max_retries})")
-                    time.sleep(delay)
+                    # Use chunked sleep to prevent WebSocket timeout
+                    _chunked_sleep(delay, f"⏳ Retry {attempt + 1}/{max_retries}")
                     continue
                 else:
                     # Max retries exceeded
@@ -279,7 +316,7 @@ def api_call_with_retry(func, max_retries=3, initial_delay=1, max_delay=60):
             if attempt < max_retries - 1:
                 delay = _calculate_exponential_delay(initial_delay, attempt, max_delay)
                 st.warning(f"⏳ Request timed out. Retrying in {delay} seconds... (Attempt {attempt + 1}/{max_retries})")
-                time.sleep(delay)
+                _chunked_sleep(delay)
                 continue
             else:
                 st.error("❌ Request timed out after multiple attempts. Please try again later.")
@@ -289,7 +326,7 @@ def api_call_with_retry(func, max_retries=3, initial_delay=1, max_delay=60):
             if attempt < max_retries - 1:
                 delay = _calculate_exponential_delay(initial_delay, attempt, max_delay)
                 st.warning(f"⏳ Network error. Retrying in {delay} seconds... (Attempt {attempt + 1}/{max_retries})")
-                time.sleep(delay)
+                _chunked_sleep(delay)
                 continue
             else:
                 st.error(f"❌ Network error after multiple attempts: {e}")
@@ -302,12 +339,7 @@ def api_call_with_retry(func, max_retries=3, initial_delay=1, max_delay=60):
     
     return None
 
-st.set_page_config(
-    page_title="CareerLens",
-    page_icon="🔍",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Note: st.set_page_config is called at the top of the file (after imports)
 
 # -----------------------------------------------------------------------------
 # LOGO LOADING FOR HERO BANNER
@@ -1853,8 +1885,16 @@ class RateLimiter:
             oldest_request = min(self.request_times)
             wait_time = 60 - (now - oldest_request) + 1  # Add 1 second buffer
             if wait_time > 0:
-                st.info(f"⏳ Rate limiting: Waiting {int(wait_time)} seconds to stay under {self.max_requests_per_minute} requests/minute...")
-                time.sleep(wait_time)
+                # Break long waits into smaller chunks to prevent WebSocket timeout
+                # Streamlit Cloud may disconnect on long blocking operations
+                status_placeholder = st.empty()
+                remaining = int(wait_time)
+                while remaining > 0:
+                    status_placeholder.info(f"⏳ Rate limiting: Waiting {remaining}s to stay under {self.max_requests_per_minute} requests/minute...")
+                    chunk = min(5, remaining)  # Wait max 5 seconds at a time
+                    time.sleep(chunk)
+                    remaining -= chunk
+                status_placeholder.empty()
                 # Clean up again after waiting
                 now = time.time()
                 one_minute_ago = now - 60
@@ -2005,18 +2045,34 @@ class TokenUsageTracker:
         self.total_embedding_tokens = 0
         self.cost_usd = 0.0
 
+def _is_streamlit_cloud():
+    """Detect if running on Streamlit Cloud (ephemeral filesystem)."""
+    # Streamlit Cloud sets STREAMLIT_SHARING_MODE or runs in specific environment
+    return (
+        os.environ.get('STREAMLIT_SHARING_MODE') is not None or
+        os.environ.get('STREAMLIT_SERVER_PORT') is not None or
+        os.path.exists('/mount/src') or  # Streamlit Cloud container path
+        'streamlit.app' in os.environ.get('HOSTNAME', '')
+    )
+
+
 class SemanticJobSearch:
     def __init__(self, embedding_generator, use_persistent_store=True):
         self.embedding_gen = embedding_generator
         self.job_embeddings = []
         self.jobs = []
-        self.use_persistent_store = use_persistent_store
         self.chroma_client = None
         self.collection = None
         
+        # On Streamlit Cloud, always use in-memory storage (ephemeral filesystem)
+        if _is_streamlit_cloud():
+            use_persistent_store = False
+        
+        self.use_persistent_store = use_persistent_store
+        
         if use_persistent_store:
             try:
-                # Initialize ChromaDB with persistent storage
+                # Initialize ChromaDB with persistent storage (local development only)
                 chroma_db_path = os.path.join(os.getcwd(), ".chroma_db")
                 os.makedirs(chroma_db_path, exist_ok=True)
                 self.chroma_client = chromadb.PersistentClient(path=chroma_db_path)
@@ -2027,6 +2083,19 @@ class SemanticJobSearch:
             except Exception as e:
                 st.warning(f"⚠️ Could not initialize persistent vector store: {e}. Using in-memory storage.")
                 self.use_persistent_store = False
+        
+        # Use in-memory ChromaDB for Streamlit Cloud or fallback
+        if not self.use_persistent_store and self.chroma_client is None:
+            try:
+                # EphemeralClient for in-memory storage (Streamlit Cloud compatible)
+                self.chroma_client = chromadb.EphemeralClient()
+                self.collection = self.chroma_client.get_or_create_collection(
+                    name="job_embeddings",
+                    metadata={"hnsw:space": "cosine"}
+                )
+            except Exception as e:
+                # Final fallback: no ChromaDB, use simple list storage
+                pass
     
     def _get_job_hash(self, job):
         """Generate a hash for a job to use as ID."""
