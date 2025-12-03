@@ -5,6 +5,53 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CareerLens - AI Career Copilot for Hong Kong</title>
     <link rel="icon" type="image/svg+xml" href="/logo-icon.svg" />
+    <!-- Permissions Policy: Suppress warnings for deprecated features -->
+    <meta http-equiv="Permissions-Policy" content="ambient-light-sensor=(), battery=(), document-domain=(), layout-animations=(), legacy-image-formats=(), oversized-images=(), vr=(), wake-lock=()">
+    <!-- Suppress WebSocket and non-critical console errors -->
+    <script>
+      // Suppress WebSocket connection errors from Streamlit Cloud (not applicable to React apps)
+      (function() {
+        const originalError = console.error;
+        console.error = function(...args) {
+          const message = args.join(' ');
+          // Suppress WebSocket errors related to Streamlit Cloud
+          if (message.includes('WebSocket') && message.includes('logstream')) {
+            return; // Silently ignore Streamlit WebSocket connection attempts
+          }
+          // Suppress Permissions Policy warnings (handled by meta tag)
+          if (message.includes('Unrecognized feature:')) {
+            return; // Silently ignore Permissions Policy warnings
+          }
+          // Suppress iframe sandbox warnings (from Streamlit Cloud infrastructure)
+          if (message.includes('iframe') && message.includes('sandbox')) {
+            return; // Silently ignore iframe sandbox warnings
+          }
+          // Call original console.error for other errors
+          originalError.apply(console, args);
+        };
+      })();
+      
+      // Suppress WebSocket connection attempts to Streamlit endpoints
+      (function() {
+        const originalWebSocket = window.WebSocket;
+        window.WebSocket = function(url, protocols) {
+          // Block WebSocket connections to Streamlit Cloud endpoints
+          if (url && (url.includes('/logstream') || url.includes('/_stcore'))) {
+            // Return a mock WebSocket that does nothing
+            const mockWs = {
+              readyState: 3, // CLOSED
+              close: function() {},
+              send: function() {},
+              addEventListener: function() {},
+              removeEventListener: function() {},
+              dispatchEvent: function() { return false; }
+            };
+            return mockWs;
+          }
+          return new originalWebSocket(url, protocols);
+        };
+      })();
+    </script>
 </head>
 <body>
     <div id="root"></div>
