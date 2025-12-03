@@ -47,6 +47,59 @@ gc.collect()
 
 
 # -----------------------------------------------------------------------------
+# MEMORY MANAGEMENT UTILITIES
+# -----------------------------------------------------------------------------
+def _cleanup_session_state():
+    """Clean up old/stale data from session state to prevent memory bloat.
+    
+    Called periodically to ensure session state doesn't grow unbounded.
+    """
+    # Limit cache sizes to prevent memory issues
+    MAX_CACHE_ENTRIES = 10
+    MAX_SKILL_CACHE_SIZE = 500
+    
+    # Clean up jobs cache - keep only most recent entries
+    if 'jobs_cache' in st.session_state and isinstance(st.session_state.jobs_cache, dict):
+        cache = st.session_state.jobs_cache
+        if len(cache) > MAX_CACHE_ENTRIES:
+            # Sort by timestamp and keep only the newest entries
+            sorted_keys = sorted(
+                cache.keys(),
+                key=lambda k: cache[k].get('timestamp', ''),
+                reverse=True
+            )
+            keys_to_remove = sorted_keys[MAX_CACHE_ENTRIES:]
+            for key in keys_to_remove:
+                del cache[key]
+    
+    # Clean up skill embeddings cache
+    if 'skill_embeddings_cache' in st.session_state:
+        cache = st.session_state.skill_embeddings_cache
+        if len(cache) > MAX_SKILL_CACHE_SIZE:
+            # Keep only half of the entries (simple LRU-like cleanup)
+            keys_to_remove = list(cache.keys())[:-MAX_SKILL_CACHE_SIZE//2]
+            for key in keys_to_remove:
+                del cache[key]
+    
+    if 'user_skills_embeddings_cache' in st.session_state:
+        cache = st.session_state.user_skills_embeddings_cache
+        if len(cache) > MAX_SKILL_CACHE_SIZE:
+            keys_to_remove = list(cache.keys())[:-MAX_SKILL_CACHE_SIZE//2]
+            for key in keys_to_remove:
+                del cache[key]
+    
+    # Force garbage collection after cleanup
+    gc.collect()
+
+
+# Run cleanup on module load (each session)
+try:
+    _cleanup_session_state()
+except Exception:
+    pass  # Ignore errors during cleanup (session state might not be initialized yet)
+
+
+# -----------------------------------------------------------------------------
 # HELPER FUNCTION: LOAD IMAGE AS BASE64 FOR HERO BANNER
 # -----------------------------------------------------------------------------
 def get_img_as_base64(file):
@@ -238,8 +291,13 @@ def _calculate_exponential_delay(initial_delay, attempt, max_delay):
 
 
 def _chunked_sleep(delay, message_prefix=""):
-    """Sleep in small chunks to prevent WebSocket timeout on Streamlit Cloud."""
-    if delay <= 5:
+    """Sleep in small chunks to prevent WebSocket timeout on Streamlit Cloud.
+    
+    Streamlit Cloud WebSocket connections can timeout if there's no activity for
+    extended periods. This function breaks long sleeps into smaller chunks with
+    UI updates to keep the connection alive.
+    """
+    if delay <= 3:
         time.sleep(delay)
         return
     
@@ -248,10 +306,24 @@ def _chunked_sleep(delay, message_prefix=""):
     while remaining > 0:
         if message_prefix:
             status_placeholder.caption(f"{message_prefix} ({remaining}s remaining...)")
-        chunk = min(5, remaining)  # Max 5 seconds at a time
+        else:
+            # Even without a message, update UI to keep WebSocket alive
+            status_placeholder.caption(f"⏳ Processing... ({remaining}s)")
+        chunk = min(3, remaining)  # Max 3 seconds at a time for better responsiveness
         time.sleep(chunk)
         remaining -= chunk
     status_placeholder.empty()
+
+
+def _websocket_keepalive():
+    """Send a lightweight UI update to keep WebSocket connection alive.
+    
+    Call this periodically during long-running operations that don't have
+    their own progress indicators.
+    """
+    # Use an empty placeholder to trigger a minimal UI update
+    placeholder = st.empty()
+    placeholder.empty()
 
 
 def api_call_with_retry(func, max_retries=3, initial_delay=1, max_delay=60):
@@ -1271,6 +1343,215 @@ st.markdown("""
 </script>
 """, unsafe_allow_html=True)
 
+# WebSocket connection stability and auto-reconnection handling
+# This script handles WebSocket disconnections gracefully and auto-reconnects
+st.markdown("""
+<style>
+    /* Connection status indicator styles */
+    .ws-reconnecting-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 99999;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.3s, visibility 0.3s;
+    }
+    .ws-reconnecting-overlay.active {
+        opacity: 1;
+        visibility: visible;
+    }
+    .ws-reconnecting-content {
+        background: white;
+        padding: 30px 40px;
+        border-radius: 12px;
+        text-align: center;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    }
+    [data-theme="dark"] .ws-reconnecting-content {
+        background: #262626;
+        color: #f4f4f4;
+    }
+    .ws-reconnecting-spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid #e0e0e0;
+        border-top-color: #0F62FE;
+        border-radius: 50%;
+        animation: ws-spin 1s linear infinite;
+        margin: 0 auto 15px;
+    }
+    @keyframes ws-spin {
+        to { transform: rotate(360deg); }
+    }
+    .ws-reconnecting-text {
+        font-size: 16px;
+        color: #333;
+        margin-bottom: 5px;
+    }
+    [data-theme="dark"] .ws-reconnecting-text {
+        color: #f4f4f4;
+    }
+    .ws-reconnecting-subtext {
+        font-size: 13px;
+        color: #666;
+    }
+    [data-theme="dark"] .ws-reconnecting-subtext {
+        color: #999;
+    }
+</style>
+<div id="ws-reconnecting-overlay" class="ws-reconnecting-overlay">
+    <div class="ws-reconnecting-content">
+        <div class="ws-reconnecting-spinner"></div>
+        <div class="ws-reconnecting-text">Reconnecting...</div>
+        <div class="ws-reconnecting-subtext">Please wait while we restore your connection</div>
+    </div>
+</div>
+<script>
+(function() {
+    // WebSocket connection monitor and auto-reconnection handler
+    const overlay = document.getElementById('ws-reconnecting-overlay');
+    let isReconnecting = false;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    let reconnectTimer = null;
+    let connectionCheckTimer = null;
+    
+    function showReconnectingOverlay() {
+        if (overlay && !isReconnecting) {
+            isReconnecting = true;
+            overlay.classList.add('active');
+        }
+    }
+    
+    function hideReconnectingOverlay() {
+        if (overlay) {
+            isReconnecting = false;
+            reconnectAttempts = 0;
+            overlay.classList.remove('active');
+        }
+    }
+    
+    function attemptReconnect() {
+        if (reconnectAttempts >= maxReconnectAttempts) {
+            // Max attempts reached, reload the page
+            console.log('CareerLens: Max reconnection attempts reached, reloading page...');
+            window.location.reload();
+            return;
+        }
+        
+        reconnectAttempts++;
+        console.log('CareerLens: Reconnection attempt ' + reconnectAttempts + '/' + maxReconnectAttempts);
+        
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 16000);
+        
+        reconnectTimer = setTimeout(function() {
+            // Check if we're back online
+            if (navigator.onLine) {
+                // Try to reload the Streamlit connection by triggering a rerun
+                // This is safer than a full page reload
+                try {
+                    // Look for Streamlit's internal rerun mechanism
+                    const stApp = window.parent.document || document;
+                    const rerunButton = stApp.querySelector('[data-testid="stRerunButton"]');
+                    if (rerunButton) {
+                        rerunButton.click();
+                        hideReconnectingOverlay();
+                        return;
+                    }
+                } catch (e) {
+                    console.log('CareerLens: Could not trigger Streamlit rerun, will reload page');
+                }
+                
+                // If we still can't reconnect after delay, reload
+                if (reconnectAttempts >= 3) {
+                    window.location.reload();
+                } else {
+                    attemptReconnect();
+                }
+            } else {
+                // Still offline, keep trying
+                attemptReconnect();
+            }
+        }, delay);
+    }
+    
+    // Monitor network status
+    window.addEventListener('offline', function() {
+        console.log('CareerLens: Network connection lost');
+        showReconnectingOverlay();
+    });
+    
+    window.addEventListener('online', function() {
+        console.log('CareerLens: Network connection restored');
+        // Wait a moment for connection to stabilize, then hide overlay
+        setTimeout(function() {
+            hideReconnectingOverlay();
+            // Reload to restore Streamlit connection
+            window.location.reload();
+        }, 1000);
+    });
+    
+    // Monitor WebSocket connections (Streamlit uses WebSockets)
+    // Override WebSocket to add connection monitoring
+    const OriginalWebSocket = window.WebSocket;
+    window.WebSocket = function(url, protocols) {
+        const ws = protocols ? new OriginalWebSocket(url, protocols) : new OriginalWebSocket(url);
+        
+        // Only monitor Streamlit WebSocket connections
+        if (url && (url.includes('_stcore/stream') || url.includes('logstream'))) {
+            ws.addEventListener('close', function(event) {
+                // Only handle unexpected closes (not normal closures)
+                if (event.code !== 1000 && event.code !== 1001) {
+                    console.log('CareerLens: Streamlit WebSocket closed unexpectedly, code:', event.code);
+                    showReconnectingOverlay();
+                    attemptReconnect();
+                }
+            });
+            
+            ws.addEventListener('error', function(event) {
+                console.log('CareerLens: Streamlit WebSocket error');
+                showReconnectingOverlay();
+                attemptReconnect();
+            });
+            
+            ws.addEventListener('open', function() {
+                console.log('CareerLens: Streamlit WebSocket connected');
+                hideReconnectingOverlay();
+            });
+        }
+        
+        return ws;
+    };
+    // Preserve prototype chain
+    window.WebSocket.prototype = OriginalWebSocket.prototype;
+    window.WebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
+    window.WebSocket.OPEN = OriginalWebSocket.OPEN;
+    window.WebSocket.CLOSING = OriginalWebSocket.CLOSING;
+    window.WebSocket.CLOSED = OriginalWebSocket.CLOSED;
+    
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function() {
+        if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+        }
+        if (connectionCheckTimer) {
+            clearInterval(connectionCheckTimer);
+        }
+    });
+    
+    console.log('CareerLens: WebSocket connection monitor initialized');
+})();
+</script>
+""", unsafe_allow_html=True)
+
 if 'search_history' not in st.session_state:
     st.session_state.search_history = []
 if 'jobs_cache' not in st.session_state:
@@ -1313,6 +1594,15 @@ if 'user_skills_embeddings_cache' not in st.session_state:
     st.session_state.user_skills_embeddings_cache = {}  # Cache for user skill embeddings
 if 'skill_embeddings_cache' not in st.session_state:
     st.session_state.skill_embeddings_cache = {}  # General skill embedding cache
+
+# Limit search history size to prevent memory bloat
+MAX_SEARCH_HISTORY = 20
+if len(st.session_state.search_history) > MAX_SEARCH_HISTORY:
+    st.session_state.search_history = st.session_state.search_history[-MAX_SEARCH_HISTORY:]
+
+# Run memory cleanup after session state is initialized
+_cleanup_session_state()
+
 # Flag to use fast string-based skill matching (default: True for speed)
 # Set to False to use slower but more accurate semantic matching
 USE_FAST_SKILL_MATCHING = os.getenv("USE_FAST_SKILL_MATCHING", "true").lower() in ("true", "1", "yes")
@@ -4132,6 +4422,10 @@ def render_sidebar():
                     
                     st.session_state.matched_jobs = results
                     st.session_state.dashboard_ready = True
+                    
+                    # Clean up memory after analysis
+                    gc.collect()
+                    
                     st.rerun()
                 else:
                     progress_bar.empty()
@@ -4495,6 +4789,10 @@ def display_refine_results_section(matched_jobs, user_profile):
                 
                 st.session_state.matched_jobs = results
                 st.session_state.dashboard_ready = True
+                
+                # Clean up memory after analysis
+                gc.collect()
+                
                 st.rerun()
 
 
