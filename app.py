@@ -342,18 +342,27 @@ def api_call_with_retry(func, max_retries=3, initial_delay=1, max_delay=60):
 # Note: st.set_page_config is called at the top of the file (after imports)
 
 # -----------------------------------------------------------------------------
-# LOGO LOADING FOR HERO BANNER
+# LOGO LOADING FOR HERO BANNER (Base64 for CSS/HTML injection)
 # -----------------------------------------------------------------------------
 # Try to load the logo. If it doesn't exist, we'll just use a placeholder.
 # This ensures the app doesn't crash if the file is missing.
+# We load as Base64 so we can inject it into HTML/CSS for the watermark effect.
+_logo_base64 = ""
 _logo_html = ""
-if os.path.exists("CareerLens_Logo.png"):
-    try:
-        _img = get_img_as_base64("CareerLens_Logo.png")
-        _logo_html = f'<img src="data:image/png;base64,{_img}" class="hero-bg-logo">'
-    except Exception as e:
-        _logo_html = '<div class="hero-bg-logo"></div>'
+
+# Check for logo.png first, then fallback to CareerLens_Logo.png
+logo_paths = ["logo.png", "CareerLens_Logo.png"]
+for logo_path in logo_paths:
+    if os.path.exists(logo_path):
+        try:
+            _logo_base64 = get_img_as_base64(logo_path)
+            _logo_html = f'<img src="data:image/png;base64,{_logo_base64}" class="hero-bg-logo">'
+            break
+        except Exception as e:
+            _logo_html = '<div class="hero-bg-logo"></div>'
+            break
 else:
+    # No logo found - use empty placeholder
     _logo_html = '<div class="hero-bg-logo"></div>'
 
 # Theme will be automatically detected from system preferences via JavaScript
@@ -406,9 +415,11 @@ st.markdown("""
         --bg-gray: #1f2937;
     }}
     
-    /* --- HIDE DEFAULT STREAMLIT ELEMENTS --- */
+    /* --- HIDE DEFAULT STREAMLIT ELEMENTS (Header, Footer, Menu) --- */
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
+    header[data-testid="stHeader"] {{visibility: hidden; height: 0; padding: 0; margin: 0;}}
+    .stDeployButton {{display: none;}}
     
     /* Global Styling */
     .stApp {{
@@ -4256,101 +4267,101 @@ def display_skill_matching_matrix(user_profile):
                     st.warning(f"⚠️ **Missing Skills:** {', '.join(missing_skills_list[:5])}")
 
 def display_market_positioning_profile(matched_jobs, user_profile):
-    """Display Market Positioning Profile with 4 key metrics"""
+    """Display Dashboard with 3 key metric cards: Match Score, Est. Salary, Skill Gaps"""
     if not matched_jobs:
         return
     
-    # Get user name or use placeholder
-    user_name = user_profile.get('name', 'Professional')
-    if not user_name or user_name == 'N/A':
-        user_name = 'Professional'
+    # --- METRIC 1: Average Match Score ---
+    avg_match_score = sum(r.get('combined_match_score', 0) for r in matched_jobs) / len(matched_jobs)
+    match_score_pct = int(avg_match_score * 100)
     
-    st.markdown(f"### Welcome, {user_name}. Here is your market positioning snapshot.")
+    # Determine match quality delta
+    if match_score_pct >= 80:
+        match_delta = "Excellent fit"
+        match_delta_color = "normal"
+    elif match_score_pct >= 60:
+        match_delta = "Good fit"
+        match_delta_color = "off"
+    else:
+        match_delta = "Room to improve"
+        match_delta_color = "inverse"
     
-    # Calculate metrics
-    # Metric 1: Estimated Market Salary Band
+    # --- METRIC 2: Estimated Salary Band ---
     salary_min, salary_max = calculate_salary_band(matched_jobs)
+    avg_salary = (salary_min + salary_max) // 2
     
     # Calculate salary delta (compare with user's expectation if available)
     user_salary_expectation = st.session_state.get('salary_expectation', 0)
     if user_salary_expectation > 0:
-        avg_salary = (salary_min + salary_max) / 2
         salary_delta_pct = ((avg_salary - user_salary_expectation) / user_salary_expectation * 100) if user_salary_expectation > 0 else 0
         if salary_delta_pct > 0:
-            salary_delta = f"+{salary_delta_pct:.0f}% vs expectation"
+            salary_delta = f"+{salary_delta_pct:.0f}% vs target"
         elif salary_delta_pct < 0:
-            salary_delta = f"{salary_delta_pct:.0f}% vs expectation"
+            salary_delta = f"{salary_delta_pct:.0f}% vs target"
         else:
-            salary_delta = "Matches expectation"
+            salary_delta = "Matches target"
     else:
         salary_delta = "Market rate"
     
-    # Metric 2: Target Role Seniority
-    job_titles = [r['job'].get('title', '') for r in matched_jobs[:10] if r['job'].get('title')]
-    text_gen = get_text_generator()
-    if text_gen is None:
-        seniority = "Unknown"
-    else:
-        seniority = text_gen.analyze_seniority_level(job_titles)
-    
-    # Metric 3: Top Skill Gap
+    # --- METRIC 3: Skill Gaps Count ---
     user_skills = user_profile.get('skills', '')
     all_job_skills = []
     for result in matched_jobs:
         all_job_skills.extend(result['job'].get('skills', []))
     
-    # Find most common missing skill
+    # Find missing skills (unique gaps)
     user_skills_list = [s.lower().strip() for s in str(user_skills).split(',') if s.strip()]
-    missing_skills = []
-    skill_counts = {}
+    skill_gaps = set()
     for job_skill in all_job_skills:
         if isinstance(job_skill, str):
             job_skill_lower = job_skill.lower().strip()
-            if not any(us in job_skill_lower or job_skill_lower in us for us in user_skills_list):
-                if job_skill_lower not in [ms.lower() for ms in missing_skills]:
-                    missing_skills.append(job_skill)
-                    skill_counts[job_skill] = skill_counts.get(job_skill, 0) + 1
+            if job_skill_lower and not any(us in job_skill_lower or job_skill_lower in us for us in user_skills_list):
+                skill_gaps.add(job_skill_lower)
     
-    top_skill_gap = max(skill_counts.items(), key=lambda x: x[1])[0] if skill_counts else "Cloud Infrastructure (AWS)"
+    num_skill_gaps = len(skill_gaps)
     
-    # Metric 4: Recommended Accreditation
-    job_descriptions = [r['job'].get('description', '') for r in matched_jobs[:5]]
-    recommended_accreditation = text_gen.recommend_accreditations(job_descriptions, user_skills)
+    # Determine skill gap status
+    if num_skill_gaps <= 3:
+        gap_delta = "Well positioned"
+        gap_delta_color = "normal"
+    elif num_skill_gaps <= 7:
+        gap_delta = "Some upskilling needed"
+        gap_delta_color = "off"
+    else:
+        gap_delta = "Focus on learning"
+        gap_delta_color = "inverse"
     
-    # Display 4 metrics in columns
-    col1, col2, col3, col4 = st.columns(4)
+    # --- RENDER 3 DASHBOARD METRIC CARDS ---
+    st.markdown("### 📊 Your Dashboard")
+    
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.metric(
-            label="Est. Market Salary Band",
-            value=f"HKD {salary_min//1000}k - {salary_max//1000}k / mth",
-            delta=salary_delta,
-            delta_color="normal" if "vs expectation" in salary_delta and "+" in salary_delta else "off"
-        )
+        st.markdown("""
+        <div class="dashboard-metric-card">
+            <div class="dashboard-metric-label">Match Score</div>
+            <div class="dashboard-metric-value">{0}%</div>
+        </div>
+        """.format(match_score_pct), unsafe_allow_html=True)
+        st.caption(f"📈 {match_delta}")
     
     with col2:
-        st.metric(
-            label="Target Role Seniority",
-            value=seniority,
-            delta="Ready for step up",
-            delta_color="off"
-        )
+        st.markdown("""
+        <div class="dashboard-metric-card">
+            <div class="dashboard-metric-label">Est. Salary</div>
+            <div class="dashboard-metric-value">HKD {0}k</div>
+        </div>
+        """.format(avg_salary // 1000), unsafe_allow_html=True)
+        st.caption(f"💰 {salary_delta}")
     
     with col3:
-        st.metric(
-            label="Top Skill Gap",
-            value=top_skill_gap[:30] + "..." if len(top_skill_gap) > 30 else top_skill_gap,
-            delta="High Demand in HK",
-            delta_color="inverse"
-        )
-    
-    with col4:
-        st.metric(
-            label="Recommended Accreditation",
-            value=recommended_accreditation[:30] + "..." if len(recommended_accreditation) > 30 else recommended_accreditation,
-            delta="Unlock 15% more roles",
-            delta_color="off"
-        )
+        st.markdown("""
+        <div class="dashboard-metric-card">
+            <div class="dashboard-metric-label">Skill Gaps</div>
+            <div class="dashboard-metric-value">{0}</div>
+        </div>
+        """.format(num_skill_gaps), unsafe_allow_html=True)
+        st.caption(f"🎯 {gap_delta}")
 
 def display_refine_results_section(matched_jobs, user_profile):
     """Display Refine Results section with filters"""
@@ -5022,28 +5033,28 @@ def validate_secrets():
         return False
 
 def render_hero_banner(user_profile, matched_jobs=None):
-    """Render the hero banner with personalized welcome message"""
+    """Render the Modern Hero banner with personalized welcome message and Base64 logo watermark"""
     # Get user name or use default
     user_name = user_profile.get('name', '') if user_profile else ''
     if not user_name or user_name == 'N/A':
         user_name = 'Professional'
     
-    # Generate subtitle based on analysis state
+    # Generate AI-insights focused subtitle based on analysis state
     if matched_jobs and len(matched_jobs) > 0:
         # Calculate average match score
         avg_score = sum(r.get('combined_match_score', 0) for r in matched_jobs) / len(matched_jobs)
-        subtitle = f"We found {len(matched_jobs)} matching opportunities with an average match score of {int(avg_score * 100)}%."
+        subtitle = f"Your AI-powered career analysis is ready. We found {len(matched_jobs)} matching opportunities with {int(avg_score * 100)}% average fit."
     elif user_profile and user_profile.get('skills'):
-        subtitle = "Your profile is ready. Click 'Analyze Profile & Find Matches' to discover your market positioning."
+        subtitle = "Your profile is loaded. Unlock AI-powered insights to discover your market positioning and best-fit opportunities."
     else:
-        subtitle = "Upload your CV in the sidebar to get started with AI-powered career insights."
+        subtitle = "Leverage AI-powered insights to discover your market value, skill gaps, and best-fit opportunities in Hong Kong."
     
-    # Render hero banner with logo
+    # Render Modern Hero banner with Base64 logo watermark
     st.markdown(f"""
     <div class="hero-container">
         {_logo_html}
         <div class="hero-content">
-            <div style="color: var(--cyan); font-weight: 600; margin-bottom: 5px;">CAREERLENS INTELLIGENCE</div>
+            <div style="color: var(--cyan); font-weight: 600; margin-bottom: 8px; font-size: 12px; letter-spacing: 1.5px;">CAREERLENS AI INTELLIGENCE</div>
             <div class="hero-title">Welcome back, {user_name}.</div>
             <div class="hero-subtitle">{subtitle}</div>
         </div>
