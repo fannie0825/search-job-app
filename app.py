@@ -531,24 +531,24 @@ st.markdown(f"""
     }}
     
     /* Main Header */
-    .main-header {
+    .main-header {{
         font-size: 3rem;
         font-weight: bold;
         color: var(--primary-accent);
         text-align: center;
         margin-bottom: 1rem;
         letter-spacing: -0.02em;
-    }
+    }}
     
-    .sub-header {
+    .sub-header {{
         font-size: 1.2rem;
         text-align: center;
         color: var(--text-secondary);
         margin-bottom: 2rem;
-    }
+    }}
     
     /* Step Hierarchy - Visual Markers */
-    .step-marker {
+    .step-marker {{
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -561,33 +561,33 @@ st.markdown(f"""
         font-weight: bold;
         margin-right: 1rem;
         flex-shrink: 0;
-    }
+    }}
     
-    .step-container {
+    .step-container {{
         margin: 2rem 0;
         padding: 2rem;
         background-color: var(--bg-container);
         border-radius: 12px;
         border: none;
-    }
+    }}
     
     /* Job Card - Minimalist Design */
-    .job-card {
+    .job-card {{
         background-color: var(--bg-container);
         padding: 1.5rem;
         border-radius: 12px;
         margin-bottom: 1.5rem;
         border: none;
         transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
+    }}
     
-    .job-card:hover {
+    .job-card:hover {{
         transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-    }
+    }}
     
     /* Match Score - Action Accent */
-    .match-score {
+    .match-score {{
         background-color: var(--action-accent);
         color: white;
         padding: 0.4rem 1rem;
@@ -595,10 +595,10 @@ st.markdown(f"""
         font-weight: bold;
         display: inline-block;
         font-size: 0.9rem;
-    }
+    }}
     
     /* Tags */
-    .tag {
+    .tag {{
         display: inline-block;
         background-color: var(--bg-container);
         color: var(--text-primary);
@@ -607,113 +607,113 @@ st.markdown(f"""
         margin: 0.2rem;
         font-size: 0.85rem;
         border: none;
-    }
+    }}
     
     /* Borderless Input Fields */
     .stTextInput > div > div > input,
     .stTextArea > div > div > textarea,
-    .stSelectbox > div > div > select {
+    .stSelectbox > div > div > select {{
         border: none !important;
         border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
         border-radius: 0 !important;
         background-color: transparent !important;
         padding: 0.5rem 0 !important;
         transition: border-color 0.3s ease !important;
-    }
+    }}
     
     .stTextInput > div > div > input:focus,
-    .stTextArea > div > div > textarea:focus {
+    .stTextArea > div > div > textarea:focus {{
         border-bottom: 2px solid var(--primary-accent) !important;
         outline: none !important;
         box-shadow: none !important;
-    }
+    }}
     
     /* Dark mode input styling */
     [data-theme="dark"] .stTextInput > div > div > input,
     [data-theme="dark"] .stTextArea > div > div > textarea,
-    [data-theme="dark"] .stSelectbox > div > div > select {
+    [data-theme="dark"] .stSelectbox > div > div > select {{
         border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
         color: var(--text-primary) !important;
-    }
+    }}
     
     [data-theme="dark"] .stTextInput > div > div > input:focus,
-    [data-theme="dark"] .stTextArea > div > div > textarea:focus {
+    [data-theme="dark"] .stTextArea > div > div > textarea:focus {{
         border-bottom: 2px solid var(--primary-accent) !important;
-    }
+    }}
     
     /* Buttons - Rounded with Primary Accent */
-    .stButton > button {
+    .stButton > button {{
         border-radius: 8px !important;
         border: none !important;
         font-weight: 500 !important;
         transition: all 0.2s ease !important;
-    }
+    }}
     
-    .stButton > button[kind="primary"] {
+    .stButton > button[kind="primary"] {{
         background-color: var(--primary-accent) !important;
         color: white !important;
-    }
+    }}
     
-    .stButton > button[kind="primary"]:hover {
+    .stButton > button[kind="primary"]:hover {{
         background-color: var(--primary-accent) !important;
         opacity: 0.9 !important;
         transform: translateY(-1px) !important;
-    }
+    }}
     
     /* Sliders - Elegant Design */
     /* Slider track background - subtle gray */
-    .stSlider [data-baseweb="slider"] > div:first-child {
+    .stSlider [data-baseweb="slider"] > div:first-child {{
         background-color: rgba(0, 0, 0, 0.08) !important;
-    }
+    }}
     
-    [data-theme="dark"] .stSlider [data-baseweb="slider"] > div:first-child {
+    [data-theme="dark"] .stSlider [data-baseweb="slider"] > div:first-child {{
         background-color: rgba(255, 255, 255, 0.15) !important;
-    }
+    }}
     
     /* Slider track fill - primary accent color */
-    .stSlider [data-baseweb="slider"] > div > div {
+    .stSlider [data-baseweb="slider"] > div > div {{
         background-color: var(--primary-accent) !important;
-    }
+    }}
     
     /* Target slider track background */
-    .stSlider [data-baseweb="slider-track"] {
+    .stSlider [data-baseweb="slider-track"] {{
         background-color: rgba(0, 0, 0, 0.08) !important;
-    }
+    }}
     
-    [data-theme="dark"] .stSlider [data-baseweb="slider-track"] {
+    [data-theme="dark"] .stSlider [data-baseweb="slider-track"] {{
         background-color: rgba(255, 255, 255, 0.15) !important;
-    }
+    }}
     
     /* Slider thumb/handle - primary accent with hover effect */
     .stSlider [data-baseweb="slider-thumb"],
-    .stSlider [role="slider"] {
+    .stSlider [role="slider"] {{
         background-color: var(--primary-accent) !important;
         border-color: var(--primary-accent) !important;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
         transition: transform 0.2s ease, box-shadow 0.2s ease !important;
-    }
+    }}
     
     .stSlider [data-baseweb="slider-thumb"]:hover,
-    .stSlider [role="slider"]:hover {
+    .stSlider [role="slider"]:hover {{
         transform: scale(1.1) !important;
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15) !important;
-    }
+    }}
     
     /* Slider value display */
-    .stSlider label {
+    .stSlider label {{
         color: var(--text-primary) !important;
-    }
+    }}
     
     /* Status Indicators - Profile Ready */
-    .profile-ready {
+    .profile-ready {{
         display: inline-flex;
         align-items: center;
         gap: 0.5rem;
         color: var(--success-green);
         font-weight: 500;
-    }
+    }}
     
-    .profile-ready::before {
+    .profile-ready::before {{
         content: "✓";
         display: inline-flex;
         align-items: center;
@@ -725,279 +725,279 @@ st.markdown(f"""
         color: white;
         font-size: 0.8rem;
         font-weight: bold;
-    }
+    }}
     
     /* Match Score Display - Prominent with Action Accent */
-    .match-score-display {
+    .match-score-display {{
         font-size: 2rem;
         font-weight: bold;
         color: var(--action-accent);
         text-align: center;
-    }
+    }}
     
     /* Step 3 Containers - Automatic/Manual Search */
-    .step3-container {
+    .step3-container {{
         background-color: var(--bg-container);
         padding: 1.5rem;
         border-radius: 12px;
         margin: 1rem 0;
-    }
+    }}
     
     /* Alternative: Style columns directly for Step 3 */
-    div[data-testid="column"]:has(.step3-container) {
+    div[data-testid="column"]:has(.step3-container) {{
         padding: 0.5rem;
-    }
+    }}
     
     /* Ensure container background shows through */
-    .step3-container > * {
+    .step3-container > * {{
         position: relative;
         z-index: 1;
-    }
+    }}
     
     /* Minimal Dividers */
-    hr {
+    hr {{
         border: none;
         border-top: 1px solid rgba(0, 0, 0, 0.08);
         margin: 2rem 0;
-    }
+    }}
     
-    [data-theme="dark"] hr {
+    [data-theme="dark"] hr {{
         border-top: 1px solid rgba(255, 255, 255, 0.1);
-    }
+    }}
     
     /* Remove default Streamlit borders and shadows */
-    .element-container {
+    .element-container {{
         border: none !important;
         box-shadow: none !important;
-    }
+    }}
     
     /* Card-like containers for Step 3 */
-    .matching-container {
+    .matching-container {{
         background-color: var(--bg-container);
         padding: 1.5rem;
         border-radius: 12px;
         margin-bottom: 1rem;
-    }
+    }}
     
     /* Ensure proper spacing and layout */
-    .main .block-container {
+    .main .block-container {{
         padding-top: 2rem;
         padding-bottom: 2rem;
-    }
+    }}
     
     /* Improve form styling */
-    .stForm {
+    .stForm {{
         border: none;
         background-color: transparent;
-    }
+    }}
     
     /* File uploader styling */
-    .stFileUploader > div {
+    .stFileUploader > div {{
         border: 1px dashed rgba(0, 0, 0, 0.2);
         border-radius: 8px;
         padding: 1rem;
         background-color: var(--bg-container);
-    }
+    }}
     
-    [data-theme="dark"] .stFileUploader > div {
+    [data-theme="dark"] .stFileUploader > div {{
         border-color: rgba(255, 255, 255, 0.2);
-    }
+    }}
     
     /* Expander styling */
-    .streamlit-expanderHeader {
+    .streamlit-expanderHeader {{
         color: var(--text-primary);
         font-weight: 500;
-    }
+    }}
     
     /* Metric styling */
-    [data-testid="stMetricValue"] {
+    [data-testid="stMetricValue"] {{
         color: var(--text-primary);
-    }
+    }}
     
-    [data-testid="stMetricLabel"] {
+    [data-testid="stMetricLabel"] {{
         color: var(--text-secondary);
-    }
+    }}
     
     /* Info/Warning/Success boxes */
-    .stAlert {
+    .stAlert {{
         border-radius: 8px;
         border: none;
-    }
+    }}
     
     /* Number input styling */
-    .stNumberInput > div > div > input {
+    .stNumberInput > div > div > input {{
         border: none !important;
         border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
         border-radius: 0 !important;
         background-color: transparent !important;
-    }
+    }}
     
-    [data-theme="dark"] .stNumberInput > div > div > input {
+    [data-theme="dark"] .stNumberInput > div > div > input {{
         border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
         color: var(--text-primary) !important;
-    }
+    }}
     
-    .stNumberInput > div > div > input:focus {
+    .stNumberInput > div > div > input:focus {{
         border-bottom: 2px solid var(--primary-accent) !important;
         outline: none !important;
-    }
+    }}
     
     /* Executive Dashboard Styles */
-    .dashboard-header {
+    .dashboard-header {{
         font-size: 2.5rem;
         font-weight: 700;
         color: var(--primary-accent);
         margin-bottom: 0.5rem;
         letter-spacing: -0.02em;
-    }
+    }}
     
-    .dashboard-subtitle {
+    .dashboard-subtitle {{
         font-size: 1rem;
         color: var(--text-secondary);
         margin-bottom: 2rem;
-    }
+    }}
     
-    .metric-card {
+    .metric-card {{
         background-color: var(--bg-container);
         padding: 1.5rem;
         border-radius: 12px;
         border: 1px solid rgba(0, 0, 0, 0.05);
         transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
+    }}
     
-    .metric-card:hover {
+    .metric-card:hover {{
         transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-    }
+    }}
     
-    .metric-value {
+    .metric-value {{
         font-size: 2rem;
         font-weight: bold;
         color: var(--primary-accent);
         margin: 0.5rem 0;
-    }
+    }}
     
-    .metric-label {
+    .metric-label {{
         font-size: 0.9rem;
         color: var(--text-secondary);
         text-transform: uppercase;
         letter-spacing: 0.05em;
-    }
+    }}
     
-    .job-table-row {
+    .job-table-row {{
         cursor: pointer;
         transition: background-color 0.2s ease;
         border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-    }
+    }}
     
-    .job-table-row:hover {
+    .job-table-row:hover {{
         background-color: var(--bg-container);
-    }
+    }}
     
-    .match-score-badge {
+    .match-score-badge {{
         display: inline-flex;
         align-items: center;
         padding: 0.4rem 0.8rem;
         border-radius: 20px;
         font-weight: 600;
         font-size: 0.9rem;
-    }
+    }}
     
-    .match-score-high {
+    .match-score-high {{
         background-color: var(--success-green);
         color: white;
-    }
+    }}
     
-    .match-score-medium {
+    .match-score-medium {{
         background-color: var(--warning-amber);
         color: white;
-    }
+    }}
     
-    .match-score-low {
+    .match-score-low {{
         background-color: var(--error-red);
         color: white;
-    }
+    }}
     
-    .expandable-details {
+    .expandable-details {{
         background-color: var(--bg-container);
         padding: 1.5rem;
         border-radius: 8px;
         margin-top: 1rem;
         border-left: 4px solid var(--primary-accent);
-    }
+    }}
     
-    .match-breakdown {
+    .match-breakdown {{
         display: flex;
         gap: 2rem;
         margin: 1rem 0;
-    }
+    }}
     
-    .match-type {
+    .match-type {{
         flex: 1;
         padding: 1rem;
         background-color: var(--bg-main);
         border-radius: 8px;
-    }
+    }}
     
-    .match-type-label {
+    .match-type-label {{
         font-size: 0.85rem;
         color: var(--text-secondary);
         text-transform: uppercase;
         margin-bottom: 0.5rem;
-    }
+    }}
     
-    .match-type-value {
+    .match-type-value {{
         font-size: 1.5rem;
         font-weight: bold;
         color: var(--primary-accent);
-    }
+    }}
     
     /* Sidebar styling */
-    .sidebar-section {
+    .sidebar-section {{
         margin-bottom: 2rem;
         padding-bottom: 1.5rem;
         border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-    }
+    }}
     
-    [data-theme="dark"] .sidebar-section {
+    [data-theme="dark"] .sidebar-section {{
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    }
+    }}
     
     /* Table styling */
-    .dataframe {
+    .dataframe {{
         width: 100%;
         border-collapse: collapse;
-    }
+    }}
     
-    .dataframe th {
+    .dataframe th {{
         background-color: var(--bg-container);
         color: var(--text-primary);
         font-weight: 600;
         padding: 1rem;
         text-align: left;
         border-bottom: 2px solid var(--primary-accent);
-    }
+    }}
     
-    .dataframe td {
+    .dataframe td {{
         padding: 1rem;
         border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-    }
+    }}
     
-    [data-theme="dark"] .dataframe td {
+    [data-theme="dark"] .dataframe td {{
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    }
+    }}
     
     /* Missing Critical Skill column styling */
     .dataframe td:has-text("Missing Critical Skill"),
-    .dataframe [data-column="Missing Critical Skill"] {
+    .dataframe [data-column="Missing Critical Skill"] {{
         color: #FF6B6B !important;
         font-weight: 500;
-    }
+    }}
     
     [data-theme="dark"] .dataframe td:has-text("Missing Critical Skill"),
-    [data-theme="dark"] .dataframe [data-column="Missing Critical Skill"] {
+    [data-theme="dark"] .dataframe [data-column="Missing Critical Skill"] {{
         color: #FF8C8C !important;
-    }
+    }}
 </style>
 """, unsafe_allow_html=True)
 
