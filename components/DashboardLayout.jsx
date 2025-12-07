@@ -1,255 +1,231 @@
-import React, { useState, useEffect } from 'react';
-import { Menu } from 'lucide-react';
-import Sidebar from './Sidebar';
-import MarketPositionCards from './MarketPositionCards';
-import JobMatchTable from './JobMatchTable';
-import JobList from './JobList';
-import ToastContainer from './Toast';
-import LoadingOverlay from './LoadingSpinner';
-import { useToast } from '../hooks/useToast';
-import ApiService from '../services/api';
+import React, { useMemo, useState } from 'react';
+import {
+  Eye,
+  FileText,
+  LayoutDashboard,
+  Menu,
+  Settings,
+  Target,
+  X
+} from 'lucide-react';
+
+const navItems = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'resume', label: 'Resume Analysis', icon: FileText },
+  { id: 'market', label: 'Market Match', icon: Target },
+  { id: 'settings', label: 'Settings', icon: Settings }
+];
+
+const metricCards = [
+  {
+    id: 'match-score',
+    label: 'MATCH SCORE',
+    value: '92%',
+    description: 'Overall alignment',
+    valueClass: 'text-[#377dff]'
+  },
+  {
+    id: 'salary',
+    label: 'EST. SALARY',
+    value: 'HK$55k',
+    description: 'Median offer range',
+    valueClass: 'text-slate-900'
+  },
+  {
+    id: 'skill-gaps',
+    label: 'SKILL GAPS',
+    value: '3',
+    description: 'Key areas to upskill',
+    valueClass: 'text-[#f04438]'
+  }
+];
 
 const DashboardLayout = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [profileData, setProfileData] = useState(null);
-  const [marketPositioning, setMarketPositioning] = useState(null);
-  const [jobMatches, setJobMatches] = useState(null);
-  const [rawJobs, setRawJobs] = useState(null);
-  const [hasFetchedJobs, setHasFetchedJobs] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const { toasts, removeToast, success, error, warning, info } = useToast();
+  const [activeNav, setActiveNav] = useState('dashboard');
+  const [isNavOpen, setIsNavOpen] = useState(false);
 
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 1024); // lg breakpoint
-    };
-    
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
+  const activeLabel = useMemo(
+    () => navItems.find((item) => item.id === activeNav)?.label ?? 'Dashboard',
+    [activeNav]
+  );
 
-  const handleFileUploaded = async (fileResult, profile) => {
-    if (profile) {
-      setProfileData(profile);
-      success('Profile extracted from resume successfully!');
-    }
-  };
+  const toggleNav = () => setIsNavOpen((prev) => !prev);
+  const closeNav = () => setIsNavOpen(false);
 
-  /**
-   * Step 1: Fetch Market Jobs
-   * 
-   * Technical Operations:
-   * - Job Fetch (Indeed API): Isolated and gated, no embeddings
-   * - Market Positioning: Based on resume only (GPT-4o), not job list
-   * - Rate Limit: Small burst (Indeed API only)
-   * - UX: ~5 second wait for job titles
-   */
-  const handleFetchJobs = async (filters) => {
-    if (!profileData) {
-      warning('Please upload a resume first');
-      return;
-    }
-
-    setLoading(true);
-    setIsAnalyzing(false);
-    try {
-      // Step 1: Fetch jobs from Indeed (NO embeddings - just raw job data)
-      const jobsResult = await ApiService.fetchJobs(filters);
-      const jobs = Array.isArray(jobsResult) ? jobsResult : (jobsResult?.jobs || []);
-      setRawJobs(jobs);
-      setHasFetchedJobs(true);
-
-      // Get market positioning based on resume only (NOT job list)
-      // This uses GPT-4o for resume analysis but does NOT trigger job embeddings
-      const positioning = await ApiService.getMarketPositioning(profileData, filters);
-      setMarketPositioning(positioning);
-
-      // Clear ranked matches until user clicks "Analyze and Rank"
-      setJobMatches(null);
-
-      success(`Fetched ${jobs.length} jobs from Indeed! Review them below, then click "Analyze and Rank" for AI-powered matching.`);
-    } catch (err) {
-      console.error('Job fetch error:', err);
-      error(err.message || 'Failed to fetch jobs. Please try again.');
-      setRawJobs(null);
-      setHasFetchedJobs(false);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /**
-   * Step 2: Analyze and Rank Top 15 Matches
-   * 
-   * Technical Operations (High Load):
-   * - Embedding Generation: Semantic Indexing for jobs (Azure OpenAI Embeddings)
-   * - Semantic Search: Cosine Similarity matching
-   * - Skill Matching: Detailed skill overlap analysis
-   * - Rate Limit: Second burst of API calls (Azure Embedding API)
-   * - UX: User commits to 10-15 second AI analysis only when ready
-   */
-  const handleAnalyze = async (filters) => {
-    if (!profileData) {
-      warning('Please upload a resume first');
-      return;
-    }
-
-    if (!hasFetchedJobs || !rawJobs || rawJobs.length === 0) {
-      warning('Please fetch jobs first using "Fetch Market Jobs" button');
-      return;
-    }
-
-    setLoading(true);
-    setIsAnalyzing(true);
-    try {
-      // Step 2: Expensive AI processing - THIS is where embeddings happen
-      // 1. Semantic Indexing (Job Embeddings via Azure OpenAI)
-      // 2. Semantic Search (Cosine Similarity)
-      // 3. Skill Matching
-      const matches = await ApiService.getJobMatches(profileData, filters, 15);
-      // Handle both { jobs: [...] } and [...] formats
-      setJobMatches(Array.isArray(matches) ? matches : (matches?.jobs || []));
-
-      success('Analysis complete! Top 15 ranked matches are ready.');
-    } catch (err) {
-      console.error('Analysis error:', err);
-      error(err.message || 'Analysis failed. Please try again.');
-      setJobMatches(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleTailorResume = async (job) => {
-    if (!profileData) {
-      warning('Please upload a resume first');
-      return;
-    }
-
-    // Extract job ID from various possible formats
-    const jobId = job.id || job.jobId || job._id || job.originalJob?.id || job.originalJob?.jobId;
-    
-    if (!jobId) {
-      error('Unable to identify job. Please try again.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      info(`Generating tailored resume for ${job.jobTitle || job.title || 'this position'}...`);
-      const result = await ApiService.generateTailoredResume(profileData, jobId);
-      
-      success(`Tailored resume generated for ${job.jobTitle || job.title || 'this position'}!`);
-      
-      // Handle resume download or display
-      if (result.downloadUrl && result.downloadUrl !== '#') {
-        window.open(result.downloadUrl, '_blank');
-      } else if (result.fileUrl) {
-        window.open(result.fileUrl, '_blank');
-      } else if (result.url) {
-        window.open(result.url, '_blank');
-      } else {
-        // If no download URL, show success message with instructions
-        info('Resume generated successfully! Check your downloads or the generated files section.');
-      }
-    } catch (err) {
-      console.error('Resume generation error:', err);
-      error(err.message || 'Failed to generate tailored resume. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+  const handleNavClick = (id) => {
+    setActiveNav(id);
+    closeNav();
   };
 
   return (
-    <div className="min-h-screen bg-bg-main dark:bg-dark-bg-main">
-      {/* Mobile Header */}
-      {isMobile && (
-        <header className="lg:hidden fixed top-0 left-0 right-0 z-30 bg-bg-sidebar text-white p-4 flex items-center justify-between shadow-lg">
-          <h1 className="text-lg font-bold">CareerLens</h1>
+    <div className="min-h-screen bg-[#f5f7fa] text-[#111827] flex font-['Inter']">
+      {/* Backdrop for mobile navigation */}
+      {isNavOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-30 lg:hidden"
+          aria-hidden="true"
+          onClick={closeNav}
+        />
+      )}
+
+      {/* Sidebar Navigation */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 w-72 bg-[#1a2332] text-white flex flex-col shadow-2xl transform transition-transform duration-300 ease-out lg:static lg:translate-x-0 ${
+          isNavOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}
+      >
+        <div className="flex items-center justify-between px-6 pt-6 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center">
+              <Eye className="w-6 h-6 text-[#5cc5ff]" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-sm uppercase tracking-[0.3em] text-white/60">
+                CareerLens
+              </p>
+              <p className="text-lg font-semibold text-white">Analytics</p>
+            </div>
+          </div>
           <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 hover:bg-navy-light rounded-lg transition-colors"
-            aria-label="Toggle sidebar"
+            className="lg:hidden text-white/60 hover:text-white transition-colors"
+            onClick={closeNav}
+            aria-label="Close navigation"
           >
-            <Menu className="w-6 h-6" />
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        <nav className="mt-4 flex-1 px-4 space-y-2">
+          {navItems.map(({ id, label, icon: Icon }) => {
+            const isActive = id === activeNav;
+            return (
+              <button
+                key={id}
+                onClick={() => handleNavClick(id)}
+                className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all duration-200 text-left ${
+                  isActive
+                    ? 'bg-white/10 text-white shadow-[0_10px_30px_rgba(31,63,104,0.35)]'
+                    : 'text-white/70 hover:text-white hover:bg-white/5'
+                }`}
+                aria-current={isActive ? 'page' : undefined}
+              >
+                <span
+                  className={`w-10 h-10 rounded-2xl flex items-center justify-center transition-colors ${
+                    isActive
+                      ? 'bg-[#2f80ff]/20 text-[#58a2ff]'
+                      : 'bg-white/5 text-white/70'
+                  }`}
+                >
+                  <Icon className="w-5 h-5" />
+                </span>
+                <span className="text-sm font-medium tracking-wide">
+                  {label}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="px-6 py-6">
+          <div className="rounded-2xl bg-white/5 p-4 border border-white/10">
+            <p className="text-xs uppercase tracking-[0.2em] text-white/60 mb-1">
+              Active section
+            </p>
+            <p className="text-base font-semibold text-white">{activeLabel}</p>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-h-screen">
+        {/* Mobile Header */}
+        <header className="lg:hidden flex items-center justify-between bg-[#1a2332] text-white px-5 py-4 shadow-lg">
+          <div className="flex items-center gap-2">
+            <Eye className="w-6 h-6 text-[#5cc5ff]" aria-hidden="true" />
+            <span className="font-semibold">CareerLens</span>
+          </div>
+          <button
+            onClick={toggleNav}
+            className="p-2 rounded-xl bg-white/10"
+            aria-label="Toggle navigation"
+          >
+            <Menu className="w-5 h-5" />
           </button>
         </header>
-      )}
 
-      <div className="flex h-screen overflow-hidden">
-        {/* Sidebar */}
-        <Sidebar
-          isOpen={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-          isMobile={isMobile}
-          onFileUploaded={handleFileUploaded}
-          onFetchJobs={handleFetchJobs}
-          onAnalyze={handleAnalyze}
-          toast={{ success, error, warning, info }}
-        />
-
-        {/* Main Content Area */}
-        <main className={`flex-1 overflow-y-auto scrollbar-thin ${
-          isMobile ? 'pt-16' : ''
-        }`}>
-          <div className="max-w-7xl mx-auto p-6 lg:p-8">
-            {/* Header */}
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold text-text-heading dark:text-dark-text-primary mb-2">
-                Market Positioning & Smart Matches
-              </h1>
-              <p className="text-text-muted dark:text-dark-text-secondary">
-                AI-powered career insights for the Hong Kong market
-              </p>
-            </div>
-
-            {/* Market Positioning Cards */}
-            <MarketPositionCards data={marketPositioning} />
-
-            {/* Raw Job List (Step 1) */}
-            {hasFetchedJobs && rawJobs && (
-              <div className="mb-8">
-                <JobList jobs={rawJobs} loading={loading} />
-              </div>
-            )}
-
-            {/* Ranked Job Matches Table (Step 2) */}
-            {jobMatches && jobMatches.length > 0 && (
-              <div className="mb-8">
-                <JobMatchTable
-                  jobs={jobMatches}
-                  loading={loading}
-                  onTailorResume={handleTailorResume}
-                  toast={{ success, error, warning, info }}
-                />
-              </div>
-            )}
-
-            {/* Empty State */}
-            {!hasFetchedJobs && !jobMatches && (
-              <div className="card p-12 bg-bg-card dark:bg-dark-bg-card border-card text-center">
-                <p className="text-text-muted dark:text-dark-text-secondary text-lg">
-                  Upload your resume and click "Fetch Market Jobs" to get started.
+        <main className="flex-1 px-6 py-8 lg:px-12 lg:py-10 space-y-10">
+          {/* Header Section */}
+          <section className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#1a2332] to-[#2c3e50] text-white p-8 lg:p-10 shadow-xl">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-8">
+              <div className="space-y-4 max-w-2xl">
+                <p className="text-sm uppercase tracking-[0.35em] text-white/60">
+                  CareerLens Insights
+                </p>
+                <p className="text-4xl font-semibold leading-tight">
+                  Welcome back, Alex,
+                </p>
+                <p className="text-lg text-white/80">
+                  Your market value has increased by 5% since last month.
                 </p>
               </div>
-            )}
-          </div>
+              <div className="flex items-center justify-center">
+                <div className="w-28 h-28 lg:w-32 lg:h-32 rounded-full border-4 border-white/20 bg-white/10 flex items-center justify-center">
+                  <div className="w-24 h-24 lg:w-28 lg:h-28 rounded-full bg-gradient-to-b from-white/40 to-white/10 backdrop-blur flex items-center justify-center text-white/60 text-sm">
+                    Avatar
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="absolute inset-0 pointer-events-none opacity-50">
+              <div className="absolute -right-16 top-10 w-48 h-48 rounded-full border border-white/10" />
+              <div className="absolute -right-4 top-16 w-28 h-28 rounded-full border border-white/10" />
+            </div>
+          </section>
+
+          {/* Recent Activity */}
+          <section>
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 gap-2">
+              <div>
+                <p className="text-sm uppercase tracking-[0.4em] text-slate-400">
+                  Dashboard
+                </p>
+                <h2 className="text-2xl font-semibold text-[#1f2a37]">
+                  Recent Activity
+                </h2>
+              </div>
+              <p className="text-sm text-slate-500">
+                Last updated <span className="font-semibold text-slate-700">2 mins ago</span>
+              </p>
+            </div>
+            <div className="grid gap-5 md:grid-cols-3">
+              {metricCards.map(({ id, label, value, description, valueClass }) => (
+                <article
+                  key={id}
+                  className="bg-white rounded-2xl p-6 shadow-sm border border-white hover:-translate-y-1 hover:shadow-xl transition duration-300 ease-out"
+                >
+                  <p className="text-xs font-semibold tracking-[0.35em] text-slate-400">
+                    {label}
+                  </p>
+                  <p className={`mt-3 text-4xl font-semibold ${valueClass}`}>
+                    {value}
+                  </p>
+                  <p className="mt-4 text-sm text-slate-500">{description}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          {/* Chart Placeholder */}
+          <section>
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-white h-80 flex flex-col items-center justify-center text-slate-400 text-lg shadow-inner">
+              <p className="font-medium">Chart Area / Data Visualization</p>
+              <p className="text-sm text-slate-300 mt-2">
+                Upload insights or plug in your preferred analytics source
+              </p>
+            </div>
+          </section>
         </main>
       </div>
-
-      {/* Toast Notifications */}
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
-
-      {/* Loading Overlay */}
-      {loading && (
-        <LoadingOverlay 
-          message={isAnalyzing ? "Analyzing and ranking jobs..." : "Fetching jobs from Indeed..."} 
-        />
-      )}
     </div>
   );
 };
