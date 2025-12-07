@@ -1530,18 +1530,20 @@ st.markdown("""
         reconnectTimer = setTimeout(function() {
             // Check if we're back online
             if (navigator.onLine) {
-                // Check if Streamlit has already reconnected (look for active streams)
-                if (activeConnections > 0) {
-                    console.log('CareerLens: Connection restored via active WebSocket');
-                    hideReconnectingOverlay();
-                    return;
-                }
-                
-                // Try to reload the Streamlit connection by triggering a rerun
-                // This is safer than a full page reload
+                // Check if Streamlit is actually working by looking for the app container
                 try {
-                    // Look for Streamlit's internal rerun mechanism
                     const stApp = window.parent.document || document;
+                    const appContainer = stApp.querySelector('.stApp') || stApp.querySelector('[data-testid="stApp"]');
+                    
+                    // If Streamlit app is present and visible, connection is likely fine
+                    if (appContainer && appContainer.offsetParent !== null) {
+                        console.log('CareerLens: Streamlit app appears to be connected');
+                        hideReconnectingOverlay();
+                        return;
+                    }
+                    
+                    // Try to reload the Streamlit connection by triggering a rerun
+                    // This is safer than a full page reload
                     const rerunButton = stApp.querySelector('[data-testid="stRerunButton"]');
                     if (rerunButton) {
                         rerunButton.click();
@@ -1549,7 +1551,7 @@ st.markdown("""
                         return;
                     }
                 } catch (e) {
-                    console.log('CareerLens: Could not trigger Streamlit rerun');
+                    console.log('CareerLens: Could not check Streamlit connection status', e);
                 }
                 
                 // If we still can't reconnect after several attempts, reload
@@ -1565,19 +1567,32 @@ st.markdown("""
         }, delay);
     }
     
-    // Monitor network status
+    // Monitor network status - only show overlay if actually disconnected
+    // The 'offline' event can be unreliable, so we verify with a check
     window.addEventListener('offline', function() {
-        console.log('CareerLens: Network connection lost');
-        showReconnectingOverlay();
+        console.log('CareerLens: Browser reports offline status');
+        // Verify with a small delay to avoid false positives
+        setTimeout(function() {
+            if (!navigator.onLine) {
+                console.log('CareerLens: Confirmed offline, showing reconnection overlay');
+                showReconnectingOverlay();
+                attemptReconnect();
+            }
+        }, 500);
     });
     
     window.addEventListener('online', function() {
         console.log('CareerLens: Network connection restored');
-        // Wait a moment for connection to stabilize
+        // Wait a moment for connection to stabilize before hiding overlay
         setTimeout(function() {
-            hideReconnectingOverlay();
-            window.location.reload();
-        }, 2000);
+            if (navigator.onLine) {
+                hideReconnectingOverlay();
+                // Only reload if we were actually showing the overlay
+                if (isReconnecting) {
+                    window.location.reload();
+                }
+            }
+        }, 1000);
     });
     
     // Cleanup on page unload
