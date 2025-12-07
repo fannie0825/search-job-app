@@ -317,9 +317,6 @@ def render_styles():
     (function() {
         const overlay = document.getElementById('ws-reconnecting-overlay');
         let isReconnecting = false;
-        let reconnectAttempts = 0;
-        const maxReconnectAttempts = 5;
-        let reconnectTimer = null;
 
         function showReconnectingOverlay() {
             if (overlay && !isReconnecting) {
@@ -331,87 +328,42 @@ def render_styles():
         function hideReconnectingOverlay() {
             if (overlay) {
                 isReconnecting = false;
-                reconnectAttempts = 0;
                 overlay.classList.remove('active');
             }
         }
 
-        function attemptReconnect() {
-            if (reconnectAttempts >= maxReconnectAttempts) {
-                window.location.reload();
-                return;
-            }
-
-            reconnectAttempts++;
-            const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 16000);
-
-            reconnectTimer = setTimeout(function() {
-                if (navigator.onLine) {
-                    // Check if Streamlit is actually working by looking for the app container
-                    try {
-                        const stApp = window.parent.document || document;
-                        const appContainer = stApp.querySelector('.stApp') || stApp.querySelector('[data-testid="stApp"]');
-                        
-                        // If Streamlit app is present and visible, connection is likely fine
-                        if (appContainer && appContainer.offsetParent !== null) {
-                            console.log('CareerLens: Streamlit app appears to be connected');
-                            hideReconnectingOverlay();
-                            return;
-                        }
-                        
-                        const rerunButton = stApp.querySelector('[data-testid="stRerunButton"]');
-                        if (rerunButton) {
-                            rerunButton.click();
-                            hideReconnectingOverlay();
-                            return;
-                        }
-                    } catch (e) {
-                        console.log('CareerLens: Could not check Streamlit connection status', e);
-                    }
-
-                    if (reconnectAttempts >= 3) {
-                        window.location.reload();
-                    } else {
-                        attemptReconnect();
-                    }
-                } else {
-                    attemptReconnect();
-                }
-            }, delay);
-        }
-
-        // Monitor network status - only show overlay if actually disconnected
-        // The 'offline' event can be unreliable, so we verify with a check
+        // Show overlay when offline
         window.addEventListener('offline', function() {
-            console.log('CareerLens: Browser reports offline status');
-            // Verify with a small delay to avoid false positives
-            setTimeout(function() {
-                if (!navigator.onLine) {
-                    console.log('CareerLens: Confirmed offline, showing reconnection overlay');
-                    showReconnectingOverlay();
-                    attemptReconnect();
-                }
-            }, 500);
+            showReconnectingOverlay();
         });
 
+        // Hide overlay when back online (let Streamlit handle reconnection)
         window.addEventListener('online', function() {
-            console.log('CareerLens: Network connection restored');
-            // Wait a moment for connection to stabilize before hiding overlay
             setTimeout(function() {
-                if (navigator.onLine) {
-                    hideReconnectingOverlay();
-                    // Only reload if we were actually showing the overlay
-                    if (isReconnecting) {
-                        window.location.reload();
-                    }
-                }
+                hideReconnectingOverlay();
             }, 1000);
         });
 
-        window.addEventListener('beforeunload', function() {
-            if (reconnectTimer) {
-                clearTimeout(reconnectTimer);
-            }
+        // Monitor Streamlit's connection state
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.addedNodes.length) {
+                    mutation.addedNodes.forEach(function(node) {
+                        if (node.nodeType === 1) {
+                            // Check if Streamlit shows its reconnecting message
+                            if (node.textContent && node.textContent.includes('Connecting')) {
+                                showReconnectingOverlay();
+                            }
+                        }
+                    });
+                }
+            });
+        });
+
+        // Start observing the document
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
         });
     })();
     </script>
