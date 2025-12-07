@@ -14,7 +14,9 @@ from .helpers import (
     api_call_with_retry,
     _websocket_keepalive,
     _chunked_sleep,
-    _is_streamlit_cloud
+    _is_streamlit_cloud,
+    _ensure_websocket_alive,
+    ProgressTracker
 )
 from .api_clients import (
     APIMEmbeddingGenerator,

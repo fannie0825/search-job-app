@@ -1,16 +1,27 @@
 """
 CareerLens - AI Career Intelligence Platform
 Main application file with modular imports
+
+WebSocket Stability Notes:
+- This application includes multiple mechanisms to prevent WebSocket disconnections:
+  1. Chunked sleep operations to send periodic UI updates
+  2. Keepalive pings during long-running operations
+  3. Progress tracking with automatic connection maintenance
+  4. Optimized server configuration in .streamlit/config.toml
 """
 import warnings
 import os
 import gc
+import sys
 warnings.filterwarnings('ignore')
 
-# Streamlit Cloud optimization
+# Streamlit Cloud optimization - set before importing streamlit
 os.environ['STREAMLIT_LOG_LEVEL'] = 'error'
 os.environ['STREAMLIT_BROWSER_GATHER_USAGE_STATS'] = 'false'
 os.environ['SQLITE_TMPDIR'] = '/tmp'
+
+# Increase recursion limit for complex operations (prevents stack overflow)
+sys.setrecursionlimit(3000)
 
 import streamlit as st
 
@@ -26,7 +37,7 @@ st.set_page_config(
 )
 
 # Import all modules
-from modules.utils import _cleanup_session_state, validate_secrets
+from modules.utils import _cleanup_session_state, validate_secrets, _websocket_keepalive
 from modules.ui.styles import render_styles
 from modules.ui import (
     render_sidebar,
@@ -40,6 +51,9 @@ from modules.ui import (
 
 # Periodic garbage collection
 gc.collect()
+
+# Send initial keepalive to establish connection
+_websocket_keepalive(force=True)
 
 # Render CSS styles and JavaScript
 render_styles()

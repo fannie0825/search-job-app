@@ -6,10 +6,16 @@ import math
 import json
 import re
 import base64
+import threading
 import streamlit as st
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import requests
+
+# WebSocket keepalive configuration
+WEBSOCKET_KEEPALIVE_INTERVAL = 5  # seconds between keepalive pings
+WEBSOCKET_MAX_IDLE_TIME = 25  # max seconds before forcing a keepalive
+_last_keepalive_time = time.time()
 
 
 def _cleanup_session_state():
@@ -158,9 +164,16 @@ def _calculate_exponential_delay(initial_delay, attempt, max_delay):
 
 
 def _chunked_sleep(delay, message_prefix=""):
-    """Sleep in small chunks to prevent WebSocket timeout on Streamlit Cloud."""
-    if delay <= 2:
+    """Sleep in small chunks to prevent WebSocket timeout on Streamlit Cloud.
+    
+    This function breaks long sleeps into smaller chunks (max 2 seconds each)
+    and sends UI updates to keep the WebSocket connection alive.
+    """
+    global _last_keepalive_time
+    
+    if delay <= 1:
         time.sleep(delay)
+        _last_keepalive_time = time.time()
         return
     
     status_placeholder = st.empty()
@@ -170,19 +183,130 @@ def _chunked_sleep(delay, message_prefix=""):
             status_placeholder.caption(f"{message_prefix} ({remaining}s remaining...)")
         else:
             status_placeholder.caption(f"⏳ Processing... ({remaining}s)")
-        chunk = min(2, remaining)
+        # Use smaller chunks (1 second) for better responsiveness
+        chunk = min(1, remaining)
         time.sleep(chunk)
         remaining -= chunk
+        _last_keepalive_time = time.time()
     status_placeholder.empty()
 
 
-def _websocket_keepalive(message=None):
-    """Send a lightweight UI update to keep WebSocket connection alive."""
-    placeholder = st.empty()
-    if message:
-        placeholder.caption(f"⏳ {message}")
-        time.sleep(0.1)
-    placeholder.empty()
+def _websocket_keepalive(message=None, force=False):
+    """Send a lightweight UI update to keep WebSocket connection alive.
+    
+    This function should be called during long-running operations to prevent
+    the WebSocket connection from timing out. The function tracks the last
+    keepalive time and only sends updates when necessary (unless force=True).
+    
+    Args:
+        message: Optional status message to display
+        force: If True, always send the keepalive regardless of timing
+    """
+    global _last_keepalive_time
+    
+    current_time = time.time()
+    time_since_last = current_time - _last_keepalive_time
+    
+    # Only send keepalive if enough time has passed or force is True
+    if not force and time_since_last < WEBSOCKET_KEEPALIVE_INTERVAL:
+        return
+    
+    try:
+        placeholder = st.empty()
+        if message:
+            placeholder.caption(f"⏳ {message}")
+        else:
+            # Send a minimal update to keep connection alive
+            placeholder.empty()
+        time.sleep(0.05)  # Brief pause to ensure message is sent
+        placeholder.empty()
+        _last_keepalive_time = time.time()
+    except Exception:
+        # Silently ignore errors - connection may already be closed
+        pass
+
+
+def _ensure_websocket_alive():
+    """Check if we need to send a keepalive and do so if necessary.
+    
+    Call this function periodically during long operations to ensure
+    the WebSocket connection stays alive.
+    """
+    global _last_keepalive_time
+    
+    current_time = time.time()
+    time_since_last = current_time - _last_keepalive_time
+    
+    if time_since_last >= WEBSOCKET_MAX_IDLE_TIME:
+        _websocket_keepalive(force=True)
+
+
+class ProgressTracker:
+    """Context manager for tracking progress of long-running operations.
+    
+    This class provides automatic WebSocket keepalive during long operations
+    and optional progress bar updates.
+    
+    Example:
+        with ProgressTracker("Processing jobs", total_steps=10) as tracker:
+            for i in range(10):
+                # Do work...
+                tracker.update(i + 1, f"Step {i + 1}/10")
+    """
+    
+    def __init__(self, description="Processing", total_steps=100, show_progress=True):
+        self.description = description
+        self.total_steps = total_steps
+        self.show_progress = show_progress
+        self.current_step = 0
+        self.progress_bar = None
+        self.status_text = None
+        self._start_time = None
+        self._last_update = 0
+    
+    def __enter__(self):
+        self._start_time = time.time()
+        self._last_update = time.time()
+        if self.show_progress:
+            self.progress_bar = st.progress(0, text=f"⏳ {self.description}...")
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.progress_bar:
+            self.progress_bar.empty()
+        if self.status_text:
+            self.status_text.empty()
+        return False
+    
+    def update(self, step=None, message=None):
+        """Update progress and send keepalive if needed."""
+        global _last_keepalive_time
+        
+        if step is not None:
+            self.current_step = step
+        else:
+            self.current_step += 1
+        
+        progress = min(self.current_step / self.total_steps, 1.0)
+        
+        current_time = time.time()
+        time_since_update = current_time - self._last_update
+        
+        # Update UI at least every WEBSOCKET_KEEPALIVE_INTERVAL seconds
+        if time_since_update >= WEBSOCKET_KEEPALIVE_INTERVAL or step == self.total_steps:
+            if self.show_progress and self.progress_bar:
+                display_message = message or f"⏳ {self.description}... ({int(progress * 100)}%)"
+                self.progress_bar.progress(progress, text=display_message)
+            
+            self._last_update = current_time
+            _last_keepalive_time = current_time
+    
+    def set_message(self, message):
+        """Update the status message without changing progress."""
+        if self.show_progress and self.progress_bar:
+            progress = self.current_step / self.total_steps
+            self.progress_bar.progress(progress, text=f"⏳ {message}")
+        _websocket_keepalive()
 
 
 def api_call_with_retry(func, max_retries=3, initial_delay=1, max_delay=60):
