@@ -30,7 +30,8 @@ from .helpers import (
     api_call_with_retry,
     _websocket_keepalive,
     _chunked_sleep,
-    _is_streamlit_cloud
+    _is_streamlit_cloud,
+    _ensure_websocket_alive
 )
 
 
@@ -71,7 +72,11 @@ class APIMEmbeddingGenerator:
             return None, 0
     
     def get_embeddings_batch(self, texts, batch_size=None):
-        """Generate embeddings for a batch of texts."""
+        """Generate embeddings for a batch of texts.
+        
+        This method includes WebSocket keepalive calls to prevent connection
+        timeouts during long-running embedding operations.
+        """
         if not texts:
             return [], 0
         
@@ -85,12 +90,18 @@ class APIMEmbeddingGenerator:
         status_text = st.empty()
         total_batches = (len(texts) + effective_batch_size - 1) // effective_batch_size
         
+        # Initial keepalive before starting batch processing
+        _websocket_keepalive("Starting embedding generation...", force=True)
+        
         for i in range(0, len(texts), effective_batch_size):
             batch = texts[i:i + effective_batch_size]
             batch_num = i // effective_batch_size + 1
             progress = (i + len(batch)) / len(texts)
             progress_bar.progress(progress)
             status_text.text(f"🔄 Generating embeddings: {i + len(batch)}/{len(texts)} (batch {batch_num}/{total_batches})")
+            
+            # Keepalive before each batch
+            _ensure_websocket_alive()
             
             if i > 0 and EMBEDDING_BATCH_DELAY > 0:
                 _chunked_sleep(EMBEDDING_BATCH_DELAY, f"Batch {batch_num}/{total_batches}")
@@ -101,9 +112,12 @@ class APIMEmbeddingGenerator:
                 _websocket_keepalive(f"Processing batch {batch_num}/{total_batches}...")
                 
                 def make_request():
-                    return requests.post(self.url, headers=self.headers, json=payload, timeout=25)
+                    return requests.post(self.url, headers=self.headers, json=payload, timeout=30)
                 
                 response = api_call_with_retry(make_request, max_retries=3)
+                
+                # Keepalive after API call completes
+                _ensure_websocket_alive()
                 
                 if response and response.status_code == 200:
                     data = response.json()
@@ -113,16 +127,23 @@ class APIMEmbeddingGenerator:
                     total_tokens_used += tokens_used
                 elif response and response.status_code == 429:
                     st.warning(f"⚠️ Rate limit reached after retries. Skipping batch {batch_num}/{total_batches}.")
+                    _websocket_keepalive()
                 else:
                     st.warning(f"⚠️ Batch embedding failed, trying individual calls for batch {batch_num}...")
-                    for text in batch:
+                    _websocket_keepalive("Retrying with individual calls...")
+                    for idx, text in enumerate(batch):
+                        if idx % 2 == 0:
+                            _ensure_websocket_alive()
                         emb, tokens = self.get_embedding(text)
                         if emb:
                             embeddings.append(emb)
                             total_tokens_used += tokens
             except Exception as e:
                 st.warning(f"⚠️ Error processing batch {batch_num}, trying individual calls: {e}")
-                for text in batch:
+                _websocket_keepalive("Recovering from error...")
+                for idx, text in enumerate(batch):
+                    if idx % 2 == 0:
+                        _ensure_websocket_alive()
                     emb, tokens = self.get_embedding(text)
                     if emb:
                         embeddings.append(emb)
@@ -130,6 +151,7 @@ class APIMEmbeddingGenerator:
         
         progress_bar.empty()
         status_text.empty()
+        _websocket_keepalive("Embedding generation complete", force=True)
         return embeddings, total_tokens_used
 
 
@@ -538,14 +560,20 @@ Return ONLY the recruiter note text, no labels or formatting."""
 
 
 class RateLimiter:
-    """Simple rate limiter that enforces requests per minute limit."""
+    """Simple rate limiter that enforces requests per minute limit.
+    
+    Uses chunked sleep to prevent WebSocket timeouts during rate limiting waits.
+    """
     def __init__(self, max_requests_per_minute):
         self.max_requests_per_minute = max_requests_per_minute
         self.request_times = []
         self.lock = False
     
     def wait_if_needed(self):
-        """Wait if we've exceeded the rate limit, otherwise record the request."""
+        """Wait if we've exceeded the rate limit, otherwise record the request.
+        
+        Uses _chunked_sleep to prevent WebSocket timeouts during long waits.
+        """
         if self.max_requests_per_minute <= 0:
             return
         
@@ -557,14 +585,11 @@ class RateLimiter:
             oldest_request = min(self.request_times)
             wait_time = 60 - (now - oldest_request) + 1
             if wait_time > 0:
-                status_placeholder = st.empty()
-                remaining = int(wait_time)
-                while remaining > 0:
-                    status_placeholder.info(f"⏳ Rate limiting: Waiting {remaining}s to stay under {self.max_requests_per_minute} requests/minute...")
-                    chunk = min(2, remaining)
-                    time.sleep(chunk)
-                    remaining -= chunk
-                status_placeholder.empty()
+                # Use chunked sleep to maintain WebSocket connection
+                _chunked_sleep(
+                    wait_time, 
+                    f"⏳ Rate limiting ({self.max_requests_per_minute} req/min)"
+                )
                 now = time.time()
                 one_minute_ago = now - 60
                 self.request_times = [t for t in self.request_times if t > one_minute_ago]
@@ -585,8 +610,12 @@ class IndeedScraperAPI:
         self.rate_limiter = RateLimiter(RAPIDAPI_MAX_REQUESTS_PER_MINUTE)
     
     def search_jobs(self, query, location="Hong Kong", max_rows=15, job_type="fulltime", country="hk"):
-        """Search for jobs using Indeed Scraper API."""
-        from .helpers import _websocket_keepalive, api_call_with_retry
+        """Search for jobs using Indeed Scraper API.
+        
+        Includes WebSocket keepalive calls to prevent connection timeouts
+        during the job search API call.
+        """
+        from .helpers import _websocket_keepalive, api_call_with_retry, _ensure_websocket_alive
         
         payload = {
             "scraper": {
@@ -602,26 +631,36 @@ class IndeedScraperAPI:
         }
         
         try:
+            _websocket_keepalive("Preparing job search...", force=True)
             self.rate_limiter.wait_if_needed()
             _websocket_keepalive("Searching jobs...")
             
             def make_request():
-                return requests.post(self.url, headers=self.headers, json=payload, timeout=45)
+                return requests.post(self.url, headers=self.headers, json=payload, timeout=60)
             
             response = api_call_with_retry(make_request, max_retries=3, initial_delay=3)
+            
+            # Keepalive after API response
+            _ensure_websocket_alive()
             
             if response and response.status_code == 201:
                 data = response.json()
                 jobs = []
                 
+                _websocket_keepalive("Processing job results...")
+                
                 if 'returnvalue' in data and 'data' in data['returnvalue']:
                     job_list = data['returnvalue']['data']
                     
-                    for job_data in job_list:
+                    for idx, job_data in enumerate(job_list):
+                        # Keepalive every 5 jobs during parsing
+                        if idx % 5 == 0:
+                            _ensure_websocket_alive()
                         parsed_job = self._parse_job(job_data)
                         if parsed_job:
                             jobs.append(parsed_job)
                 
+                _websocket_keepalive("Job search complete", force=True)
                 return jobs
             else:
                 if response:

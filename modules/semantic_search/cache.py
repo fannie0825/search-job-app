@@ -1,6 +1,7 @@
 """Job search caching functionality"""
 import streamlit as st
 from datetime import datetime, timedelta
+from modules.utils.helpers import _websocket_keepalive
 
 
 def is_cache_valid(cache_entry):
@@ -91,11 +92,16 @@ def fetch_jobs_with_cache(scraper, query, location="Hong Kong", max_rows=25, job
     """
     Fetch jobs with session-level caching to avoid RapidAPI rate limits.
     Set force_refresh=True to bypass cache for a particular query.
+    
+    Includes WebSocket keepalive to prevent connection timeouts during API calls.
     """
     if scraper is None:
         return []
+    
+    _websocket_keepalive("Checking job cache...", force=True)
     _ensure_jobs_cache_structure()
     cache_key = _build_jobs_cache_key(query, location, max_rows, job_type, country)
+    
     if force_refresh:
         if cache_key in st.session_state.jobs_cache:
             st.caption("🔁 Forcing a fresh job search (cache bypassed)")
@@ -122,8 +128,15 @@ def fetch_jobs_with_cache(scraper, query, location="Hong Kong", max_rows=25, job
                 human_ts = "earlier"
             remaining_text = f" (~{expires_in_minutes} min left)" if expires_in_minutes is not None else ""
             st.caption(f"♻️ Using cached job results from {human_ts}{remaining_text}")
+            _websocket_keepalive()
             return cache_entry.get('jobs', [])
+    
+    _websocket_keepalive("Fetching jobs from API...")
     jobs = scraper.search_jobs(query, location, max_rows, job_type, country)
+    
     if jobs:
+        _websocket_keepalive("Caching job results...")
         _store_jobs_in_cache(query, location, max_rows, job_type, country, jobs, cache_ttl_hours)
+    
+    _websocket_keepalive("Job fetch complete", force=True)
     return jobs

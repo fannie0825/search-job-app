@@ -31,7 +31,7 @@ enableXsrfProtection = true
 maxUploadSize = 25
 # Maximum message size (in MB) - reduced for WebSocket stability
 # Smaller messages = fewer dropped connections
-maxMessageSize = 10
+maxMessageSize = 5
 # WebSocket compression - DISABLED to improve connection stability
 # Compression can cause issues with some proxy/CDN configurations
 enableWebsocketCompression = false
@@ -39,12 +39,18 @@ enableWebsocketCompression = false
 headless = true
 # Run on save disabled (not applicable for Streamlit Cloud)
 runOnSave = false
-# Reduced script run timeout for better connection management (in seconds)
-# Shorter timeout allows Streamlit Cloud to manage resources more efficiently
-scriptRunTimeout = 300
+# Script run timeout - INCREASED to allow long-running operations
+# This prevents premature termination during job analysis
+scriptRunTimeout = 600
 # Enable WebSocket ping/pong to keep connections alive
 # This helps prevent the /~/logstream WebSocket from disconnecting
 enableStaticServing = false
+
+# WebSocket keep-alive settings for connection stability
+# These settings help prevent the WebSocket from disconnecting during long operations
+
+# Server address binding (0.0.0.0 for Streamlit Cloud compatibility)
+address = "0.0.0.0"
 
 # Browser configuration
 [browser]

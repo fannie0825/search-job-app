@@ -5,7 +5,7 @@ import streamlit as st
 import numpy as np
 import chromadb
 from sklearn.metrics.pairwise import cosine_similarity
-from modules.utils import get_token_tracker, _is_streamlit_cloud
+from modules.utils import get_token_tracker, _is_streamlit_cloud, _websocket_keepalive, _ensure_websocket_alive
 from modules.utils.config import DEFAULT_MAX_JOBS_TO_INDEX, USE_FAST_SKILL_MATCHING
 
 
@@ -52,12 +52,17 @@ class SemanticJobSearch:
         return hashlib.md5(job_str.encode()).hexdigest()
     
     def index_jobs(self, jobs, max_jobs_to_index=None):
-        """Simplified job indexing: Check if job exists, if not, embed and store."""
+        """Simplified job indexing: Check if job exists, if not, embed and store.
+        
+        Includes WebSocket keepalive calls to prevent connection timeouts.
+        """
         if not jobs:
             st.warning("⚠️ No jobs available to index.")
             self.jobs = []
             self.job_embeddings = []
             return
+        
+        _websocket_keepalive("Starting job indexing...", force=True)
         
         effective_limit = max_jobs_to_index or min(len(jobs), DEFAULT_MAX_JOBS_TO_INDEX)
         effective_limit = max(1, min(effective_limit, len(jobs)))
@@ -65,12 +70,16 @@ class SemanticJobSearch:
             st.info(f"⚙️ Indexing first {effective_limit} of {len(jobs)} jobs to reduce embedding API calls.")
         jobs_to_index = jobs[:effective_limit]
         self.jobs = jobs_to_index
+        
+        _ensure_websocket_alive()
+        
         job_texts = [
             f"{job['title']} at {job['company']}. {job['description']} Skills: {', '.join(job['skills'][:5])}"
             for job in jobs_to_index
         ]
         
         st.info(f"📊 Indexing {len(jobs_to_index)} jobs...")
+        _websocket_keepalive("Preparing embeddings...")
         
         if self.use_persistent_store and self.collection:
             try:
@@ -131,13 +140,19 @@ class SemanticJobSearch:
             st.success(f"✅ Indexed {len(self.job_embeddings)} jobs")
     
     def search(self, query=None, top_k=10, resume_embedding=None):
-        """Simplified search: Use pre-computed resume embedding if available, otherwise generate from query."""
+        """Simplified search: Use pre-computed resume embedding if available, otherwise generate from query.
+        
+        Includes WebSocket keepalive during search operations.
+        """
         if not self.job_embeddings:
             return []
+        
+        _websocket_keepalive("Searching jobs...", force=True)
         
         if resume_embedding is not None:
             query_embedding = resume_embedding
         elif query:
+            _websocket_keepalive("Generating query embedding...")
             query_embedding, tokens_used = self.embedding_gen.get_embedding(query)
             token_tracker = get_token_tracker()
             if token_tracker:
@@ -147,11 +162,15 @@ class SemanticJobSearch:
         else:
             return []
         
+        _ensure_websocket_alive()
+        
         query_emb = np.array(query_embedding).reshape(1, -1)
         job_embs = np.array(self.job_embeddings)
         
         similarities = cosine_similarity(query_emb, job_embs)[0]
         top_indices = np.argsort(similarities)[::-1][:top_k]
+        
+        _websocket_keepalive("Ranking results...")
         
         results = []
         for idx in top_indices:
@@ -164,7 +183,11 @@ class SemanticJobSearch:
         return results
     
     def calculate_skill_match(self, user_skills, job_skills):
-        """Calculate skill-based match score."""
+        """Calculate skill-based match score.
+        
+        Uses semantic matching with embeddings when available, with automatic
+        fallback to string matching. Includes WebSocket keepalive.
+        """
         if not user_skills or not job_skills:
             return 0.0, []
         
@@ -178,6 +201,8 @@ class SemanticJobSearch:
             return self._calculate_skill_match_string_based(user_skills_list, job_skills_list)
         
         try:
+            _ensure_websocket_alive()
+            
             user_skills_key = ",".join(sorted(user_skills_list))
             if user_skills_key in st.session_state.user_skills_embeddings_cache:
                 user_skill_embeddings = st.session_state.user_skills_embeddings_cache[user_skills_key]
@@ -186,6 +211,8 @@ class SemanticJobSearch:
                 user_skill_embeddings, user_tokens = self.embedding_gen.get_embeddings_batch(user_skills_list, batch_size=10)
                 if user_skill_embeddings:
                     st.session_state.user_skills_embeddings_cache[user_skills_key] = user_skill_embeddings
+            
+            _ensure_websocket_alive()
             
             job_skills_key = ",".join(sorted(job_skills_list))
             if job_skills_key in st.session_state.skill_embeddings_cache:
