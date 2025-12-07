@@ -1,22 +1,29 @@
-"""UI module for Streamlit components
+"""UI module for Streamlit components"""
+from .sidebar import render_sidebar
+from .hero_banner import render_hero_banner
+from .job_cards import display_job_card
+from .user_profile import display_user_profile
+from .dashboard import (
+    display_market_positioning_profile,
+    display_refine_results_section,
+    display_ranked_matches_table,
+    display_match_breakdown,
+    display_skill_matching_matrix
+)
+from .resume_editor import display_resume_generator, render_structured_resume_editor
+from .match_feedback import display_match_score_feedback
 
-NOTE: The UI functions are large and should be extracted from app.py.
-Key functions to extract:
-- render_sidebar() - lines ~4221-4466
-- render_hero_banner() - lines ~5364-5392
-- display_job_card() - lines ~3153-3226
-- display_user_profile() - lines ~3560-3702
-- display_market_positioning_profile() - lines ~4594-4690
-- display_refine_results_section() - lines ~4691-4829
-- display_ranked_matches_table() - lines ~4830-4988
-- display_match_breakdown() - lines ~4989-5108
-- display_resume_generator() - lines ~4035-4220
-- display_skill_matching_matrix() - lines ~4468-4593
-- display_match_score_feedback() - lines ~3990-4034
-- render_structured_resume_editor() - lines ~3703-3874
-
-For now, these functions remain in app.py and should be imported from there.
-"""
-
-# Placeholder - UI functions should be extracted from app.py
-__all__ = []
+__all__ = [
+    'render_sidebar',
+    'render_hero_banner',
+    'display_job_card',
+    'display_user_profile',
+    'display_market_positioning_profile',
+    'display_refine_results_section',
+    'display_ranked_matches_table',
+    'display_match_breakdown',
+    'display_resume_generator',
+    'display_skill_matching_matrix',
+    'display_match_score_feedback',
+    'render_structured_resume_editor'
+]
