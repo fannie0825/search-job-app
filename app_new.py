@@ -17,8 +17,13 @@ warnings.filterwarnings('ignore')
 
 # Streamlit Cloud optimization - set before importing streamlit
 os.environ['STREAMLIT_LOG_LEVEL'] = 'error'
-os.environ['STREAMLIT_BROWSER_GATHER_USAGE_STATS'] = 'false'
 os.environ['SQLITE_TMPDIR'] = '/tmp'
+
+# Disable ALL Streamlit telemetry/analytics to prevent tracking script loads
+# Note: Browser may still show "Tracking Prevention" console messages - this is
+# the browser blocking residual analytics attempts, not an app error
+os.environ['STREAMLIT_BROWSER_GATHER_USAGE_STATS'] = 'false'
+os.environ['STREAMLIT_GLOBAL_DEVELOPMENT_MODE'] = 'false'
 
 # Increase recursion limit for complex operations (prevents stack overflow)
 sys.setrecursionlimit(3000)
