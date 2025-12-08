@@ -4,8 +4,23 @@ import streamlit as st
 import time
 import requests
 from modules.utils import get_text_generator, get_embedding_generator, api_call_with_retry
-from modules.resume_generator import generate_docx_from_json, generate_pdf_from_json, format_resume_as_text
 from .match_feedback import display_match_score_feedback
+
+# Lazy imports for heavy resume generation modules (docx, reportlab)
+_resume_formatters = None
+
+
+def _get_resume_formatters():
+    """Lazy load resume formatters (docx, pdf generation)"""
+    global _resume_formatters
+    if _resume_formatters is None:
+        from modules.resume_generator import generate_docx_from_json, generate_pdf_from_json, format_resume_as_text
+        _resume_formatters = {
+            'docx': generate_docx_from_json,
+            'pdf': generate_pdf_from_json,
+            'text': format_resume_as_text
+        }
+    return _resume_formatters
 
 
 def render_structured_resume_editor(resume_data):
@@ -296,8 +311,11 @@ def display_resume_generator():
         
         col1, col2, col3, col4, col5 = st.columns(5)
         
+        # Get formatters (lazy loaded)
+        formatters = _get_resume_formatters()
+        
         with col1:
-            pdf_file = generate_pdf_from_json(
+            pdf_file = formatters['pdf'](
                 st.session_state.generated_resume,
                 filename=f"resume_{job['company']}_{job['title']}.pdf"
             )
@@ -311,7 +329,7 @@ def display_resume_generator():
                 )
         
         with col2:
-            docx_file = generate_docx_from_json(
+            docx_file = formatters['docx'](
                 st.session_state.generated_resume,
                 filename=f"resume_{job['company']}_{job['title']}.docx"
             )
@@ -335,7 +353,7 @@ def display_resume_generator():
             )
         
         with col4:
-            txt_content = format_resume_as_text(st.session_state.generated_resume)
+            txt_content = formatters['text'](st.session_state.generated_resume)
             st.download_button(
                 label="📥 Download as TXT",
                 data=txt_content,

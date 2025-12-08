@@ -41,8 +41,8 @@ st.set_page_config(
     }
 )
 
-# Import all modules
-from modules.utils import _cleanup_session_state, validate_secrets, _websocket_keepalive
+# Import all modules - UI imports are lightweight, heavy deps are lazy-loaded
+from modules.utils import _cleanup_session_state, validate_secrets
 from modules.ui.styles import render_styles
 from modules.ui import (
     render_sidebar,
@@ -54,14 +54,11 @@ from modules.ui import (
     display_match_breakdown
 )
 
-# Periodic garbage collection
-gc.collect()
-
-# Send initial keepalive to establish connection
-_websocket_keepalive(force=True)
-
-# Render CSS styles and JavaScript
+# Render CSS styles (lightweight - no heavy imports)
 render_styles()
+
+# Note: gc.collect() and websocket keepalive moved to after user interaction
+# to speed up initial page load
 
 # Initialize session state
 if 'search_history' not in st.session_state:

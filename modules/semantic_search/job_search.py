@@ -2,11 +2,40 @@
 import os
 import hashlib
 import streamlit as st
-import numpy as np
-import chromadb
-from sklearn.metrics.pairwise import cosine_similarity
 from modules.utils import get_token_tracker, _is_streamlit_cloud, _websocket_keepalive, _ensure_websocket_alive
 from modules.utils.config import DEFAULT_MAX_JOBS_TO_INDEX, USE_FAST_SKILL_MATCHING
+
+# Lazy imports for heavy modules - only load when needed
+_np = None
+_cosine_similarity = None
+_chromadb = None
+
+
+def _get_numpy():
+    """Lazy load numpy"""
+    global _np
+    if _np is None:
+        import numpy as np
+        _np = np
+    return _np
+
+
+def _get_cosine_similarity():
+    """Lazy load sklearn cosine_similarity"""
+    global _cosine_similarity
+    if _cosine_similarity is None:
+        from sklearn.metrics.pairwise import cosine_similarity
+        _cosine_similarity = cosine_similarity
+    return _cosine_similarity
+
+
+def _get_chromadb():
+    """Lazy load chromadb"""
+    global _chromadb
+    if _chromadb is None:
+        import chromadb
+        _chromadb = chromadb
+    return _chromadb
 
 
 class SemanticJobSearch:
@@ -17,13 +46,22 @@ class SemanticJobSearch:
         self.jobs = []
         self.chroma_client = None
         self.collection = None
+        self._chroma_initialized = False
         
         if _is_streamlit_cloud():
             use_persistent_store = False
         
         self.use_persistent_store = use_persistent_store
+    
+    def _init_chroma_lazy(self):
+        """Lazy initialize ChromaDB only when needed"""
+        if self._chroma_initialized:
+            return
         
-        if use_persistent_store:
+        self._chroma_initialized = True
+        chromadb = _get_chromadb()
+        
+        if self.use_persistent_store:
             try:
                 chroma_db_path = os.path.join(os.getcwd(), ".chroma_db")
                 os.makedirs(chroma_db_path, exist_ok=True)
@@ -80,6 +118,9 @@ class SemanticJobSearch:
         
         st.info(f"📊 Indexing {len(jobs_to_index)} jobs...")
         _websocket_keepalive("Preparing embeddings...")
+        
+        # Lazy init ChromaDB only when actually indexing
+        self._init_chroma_lazy()
         
         if self.use_persistent_store and self.collection:
             try:
@@ -164,6 +205,9 @@ class SemanticJobSearch:
         
         _ensure_websocket_alive()
         
+        np = _get_numpy()
+        cosine_similarity = _get_cosine_similarity()
+        
         query_emb = np.array(query_embedding).reshape(1, -1)
         job_embs = np.array(self.job_embeddings)
         
@@ -230,6 +274,9 @@ class SemanticJobSearch:
             
             if not user_skill_embeddings or not job_skill_embeddings:
                 return self._calculate_skill_match_string_based(user_skills_list, job_skills_list)
+            
+            np = _get_numpy()
+            cosine_similarity = _get_cosine_similarity()
             
             user_embs = np.array(user_skill_embeddings)
             job_embs = np.array(job_skill_embeddings)
