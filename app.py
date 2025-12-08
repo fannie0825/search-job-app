@@ -3791,8 +3791,14 @@ def render_structured_resume_editor(resume_data):
             edited_data['header']['portfolio'] = st.text_input("Portfolio URL", value=resume_data.get('header', {}).get('portfolio', ''), key='resume_portfolio')
     
     # Summary
-    # Use a separate session state key for refined summary to avoid widget key conflict
-    summary_value = st.session_state.get('_refined_summary', resume_data.get('summary', ''))
+    # Check if there's a pending refined summary to display
+    if '_pending_refined_summary' in st.session_state:
+        # Apply the pending refinement by updating the widget key directly
+        st.session_state['resume_summary'] = st.session_state['_pending_refined_summary']
+        del st.session_state['_pending_refined_summary']
+    
+    # Get the summary value - prefer session state (for edited/refined), then fall back to resume data
+    summary_value = resume_data.get('summary', '')
     
     col_summary1, col_summary2 = st.columns([4, 1])
     with col_summary1:
@@ -3805,40 +3811,48 @@ def render_structured_resume_editor(resume_data):
     with col_summary2:
         if st.button("✨ Refine with AI", key='refine_summary', use_container_width=True, help="Use AI to improve this section"):
             with st.spinner("🤖 Refining summary..."):
-                text_gen = get_text_generator()
-                if text_gen is None:
-                    st.error("⚠️ Azure OpenAI is not configured. Please configure AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT in your Streamlit secrets.")
-                    return
-                # Get the current value from the widget's session state
-                current_summary = st.session_state.get('resume_summary', summary_value)
-                refinement_prompt = f"""Improve this professional summary. Make it more impactful, quantified, and tailored. Keep it concise (2-3 sentences).
+                try:
+                    text_gen = get_text_generator()
+                    if text_gen is None:
+                        st.error("⚠️ Azure OpenAI is not configured. Please configure AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT in your Streamlit secrets.")
+                    else:
+                        # Get the current value from the widget's session state
+                        current_summary = st.session_state.get('resume_summary', summary_value)
+                        if not current_summary or not current_summary.strip():
+                            st.warning("⚠️ Please enter a summary first before refining.")
+                        else:
+                            refinement_prompt = f"""Improve this professional summary. Make it more impactful, quantified, and tailored. Keep it concise (2-3 sentences).
 
 Current Summary:
 {current_summary}
 
 Return ONLY the improved summary text, no additional explanation."""
-                
-                payload = {
-                    "messages": [
-                        {"role": "system", "content": "You are a resume writing expert. Improve professional summaries to be more impactful and quantified."},
-                        {"role": "user", "content": refinement_prompt}
-                    ],
-                    "max_tokens": 200,
-                    "temperature": 0.7
-                }
-                
-                def make_request():
-                    return requests.post(text_gen.url, headers=text_gen.headers, json=payload, timeout=30)
-                
-                response = api_call_with_retry(make_request, max_retries=2)
-                if response and response.status_code == 200:
-                    result = response.json()
-                    refined_text = result['choices'][0]['message']['content'].strip()
-                    # Store in separate key to avoid widget conflict, then delete widget key
-                    st.session_state['_refined_summary'] = refined_text
-                    if 'resume_summary' in st.session_state:
-                        del st.session_state['resume_summary']
-                    st.rerun()
+                            
+                            payload = {
+                                "messages": [
+                                    {"role": "system", "content": "You are a resume writing expert. Improve professional summaries to be more impactful and quantified."},
+                                    {"role": "user", "content": refinement_prompt}
+                                ],
+                                "max_tokens": 200,
+                                "temperature": 0.7
+                            }
+                            
+                            def make_request():
+                                return requests.post(text_gen.url, headers=text_gen.headers, json=payload, timeout=30)
+                            
+                            response = api_call_with_retry(make_request, max_retries=2)
+                            if response and response.status_code == 200:
+                                result = response.json()
+                                refined_text = result['choices'][0]['message']['content'].strip()
+                                # Store in pending key - will be applied on next rerun before widget renders
+                                st.session_state['_pending_refined_summary'] = refined_text
+                                st.rerun()
+                            elif response:
+                                st.error(f"⚠️ API Error: {response.status_code}. Please try again.")
+                            else:
+                                st.error("⚠️ Failed to connect to AI service. Please try again.")
+                except Exception as e:
+                    st.error(f"⚠️ Error refining summary: {str(e)}")
     
     # Skills
     skills_list = resume_data.get('skills_highlighted', [])
@@ -3870,56 +3884,67 @@ Return ONLY the improved summary text, no additional explanation."""
             bullets = exp.get('bullets', [])
             edited_bullets = []
             for j, bullet in enumerate(bullets):
-                # Use separate session state key for refined bullets to avoid widget key conflict
                 bullet_key = f'exp_bullet_{i}_{j}'
-                refined_bullet_key = f'_refined_bullet_{i}_{j}'
-                bullet_value = st.session_state.get(refined_bullet_key, bullet)
+                pending_bullet_key = f'_pending_refined_bullet_{i}_{j}'
+                
+                # Check for pending refined bullet and apply it BEFORE widget renders
+                if pending_bullet_key in st.session_state:
+                    st.session_state[bullet_key] = st.session_state[pending_bullet_key]
+                    del st.session_state[pending_bullet_key]
                 
                 col_bullet1, col_bullet2 = st.columns([4, 1])
                 with col_bullet1:
                     bullet_text = st.text_area(
                         f"Bullet {j+1}",
-                        value=bullet_value,
+                        value=bullet,
                         height=60,
                         key=bullet_key
                     )
                 with col_bullet2:
                     if st.button("✨", key=f'refine_bullet_{i}_{j}', help="Refine this bullet with AI", use_container_width=True):
                         with st.spinner("🤖 Refining..."):
-                            text_gen = get_text_generator()
-                            if text_gen is None:
-                                st.error("⚠️ Azure OpenAI is not configured. Please configure AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT in your Streamlit secrets.")
-                                return
-                            # Get the current value from the widget's session state
-                            current_bullet = st.session_state.get(bullet_key, bullet_value)
-                            refinement_prompt = f"""Improve this resume bullet point. Make it more quantified, impactful, and achievement-focused. Use numbers, percentages, or metrics when possible.
+                            try:
+                                text_gen = get_text_generator()
+                                if text_gen is None:
+                                    st.error("⚠️ Azure OpenAI is not configured.")
+                                else:
+                                    # Get the current value from the widget's session state
+                                    current_bullet = st.session_state.get(bullet_key, bullet)
+                                    if not current_bullet or not current_bullet.strip():
+                                        st.warning("⚠️ Please enter content first before refining.")
+                                    else:
+                                        refinement_prompt = f"""Improve this resume bullet point. Make it more quantified, impactful, and achievement-focused. Use numbers, percentages, or metrics when possible.
 
 Current Bullet:
 {current_bullet}
 
 Return ONLY the improved bullet point, no additional text."""
-                            
-                            payload = {
-                                "messages": [
-                                    {"role": "system", "content": "You are a resume writing expert. Improve bullet points to be quantified and achievement-focused."},
-                                    {"role": "user", "content": refinement_prompt}
-                                ],
-                                "max_tokens": 150,
-                                "temperature": 0.7
-                            }
-                            
-                            def make_request():
-                                return requests.post(text_gen.url, headers=text_gen.headers, json=payload, timeout=30)
-                            
-                            response = api_call_with_retry(make_request, max_retries=2)
-                            if response and response.status_code == 200:
-                                result = response.json()
-                                refined_text = result['choices'][0]['message']['content'].strip()
-                                # Store in separate key to avoid widget conflict, then delete widget key
-                                st.session_state[refined_bullet_key] = refined_text
-                                if bullet_key in st.session_state:
-                                    del st.session_state[bullet_key]
-                                st.rerun()
+                                        
+                                        payload = {
+                                            "messages": [
+                                                {"role": "system", "content": "You are a resume writing expert. Improve bullet points to be quantified and achievement-focused."},
+                                                {"role": "user", "content": refinement_prompt}
+                                            ],
+                                            "max_tokens": 150,
+                                            "temperature": 0.7
+                                        }
+                                        
+                                        def make_request():
+                                            return requests.post(text_gen.url, headers=text_gen.headers, json=payload, timeout=30)
+                                        
+                                        response = api_call_with_retry(make_request, max_retries=2)
+                                        if response and response.status_code == 200:
+                                            result = response.json()
+                                            refined_text = result['choices'][0]['message']['content'].strip()
+                                            # Store in pending key - will be applied on next rerun before widget renders
+                                            st.session_state[pending_bullet_key] = refined_text
+                                            st.rerun()
+                                        elif response:
+                                            st.error(f"⚠️ API Error: {response.status_code}")
+                                        else:
+                                            st.error("⚠️ Failed to connect to AI service.")
+                            except Exception as e:
+                                st.error(f"⚠️ Error: {str(e)}")
                 
                 if bullet_text.strip():
                     edited_bullets.append(bullet_text.strip())
