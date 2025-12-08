@@ -45,35 +45,46 @@ def render_structured_resume_editor(resume_data):
     with col_summary2:
         if st.button("✨ Refine with AI", key='refine_summary', use_container_width=True, help="Use AI to improve this section"):
             with st.spinner("🤖 Refining summary..."):
-                text_gen = get_text_generator()
-                if text_gen is None:
-                    st.error("⚠️ Azure OpenAI is not configured.")
-                    return
-                refinement_prompt = f"""Improve this professional summary. Make it more impactful, quantified, and tailored. Keep it concise (2-3 sentences).
+                try:
+                    text_gen = get_text_generator()
+                    if text_gen is None:
+                        st.error("⚠️ Azure OpenAI is not configured.")
+                    else:
+                        current_summary = edited_data.get('summary', resume_data.get('summary', ''))
+                        if not current_summary or not current_summary.strip():
+                            st.warning("⚠️ Please enter a summary first before refining.")
+                        else:
+                            refinement_prompt = f"""Improve this professional summary. Make it more impactful, quantified, and tailored. Keep it concise (2-3 sentences).
 
 Current Summary:
-{edited_data.get('summary', resume_data.get('summary', ''))}
+{current_summary}
 
 Return ONLY the improved summary text, no additional explanation."""
-                
-                payload = {
-                    "messages": [
-                        {"role": "system", "content": "You are a resume writing expert. Improve professional summaries to be more impactful and quantified."},
-                        {"role": "user", "content": refinement_prompt}
-                    ],
-                    "max_tokens": 200,
-                    "temperature": 0.7
-                }
-                
-                def make_request():
-                    return requests.post(text_gen.url, headers=text_gen.headers, json=payload, timeout=30)
-                
-                response = api_call_with_retry(make_request, max_retries=2)
-                if response and response.status_code == 200:
-                    result = response.json()
-                    refined_text = result['choices'][0]['message']['content'].strip()
-                    st.session_state['resume_summary'] = refined_text
-                    st.rerun()
+                            
+                            payload = {
+                                "messages": [
+                                    {"role": "system", "content": "You are a resume writing expert. Improve professional summaries to be more impactful and quantified."},
+                                    {"role": "user", "content": refinement_prompt}
+                                ],
+                                "max_tokens": 200,
+                                "temperature": 0.7
+                            }
+                            
+                            def make_request():
+                                return requests.post(text_gen.url, headers=text_gen.headers, json=payload, timeout=30)
+                            
+                            response = api_call_with_retry(make_request, max_retries=2)
+                            if response and response.status_code == 200:
+                                result = response.json()
+                                refined_text = result['choices'][0]['message']['content'].strip()
+                                st.session_state['resume_summary'] = refined_text
+                                st.rerun()
+                            elif response:
+                                st.error(f"⚠️ API Error: {response.status_code}. Please try again.")
+                            else:
+                                st.error("⚠️ Failed to connect to AI service. Please try again.")
+                except Exception as e:
+                    st.error(f"⚠️ Error refining summary: {str(e)}")
     
     # Skills
     skills_list = resume_data.get('skills_highlighted', [])
@@ -116,35 +127,46 @@ Return ONLY the improved summary text, no additional explanation."""
                 with col_bullet2:
                     if st.button("✨", key=f'refine_bullet_{i}_{j}', help="Refine this bullet with AI", use_container_width=True):
                         with st.spinner("🤖 Refining..."):
-                            text_gen = get_text_generator()
-                            if text_gen is None:
-                                st.error("⚠️ Azure OpenAI is not configured.")
-                                return
-                            refinement_prompt = f"""Improve this resume bullet point. Make it more quantified, impactful, and achievement-focused. Use numbers, percentages, or metrics when possible.
+                            try:
+                                text_gen = get_text_generator()
+                                if text_gen is None:
+                                    st.error("⚠️ Azure OpenAI is not configured.")
+                                else:
+                                    current_bullet = bullet_text if bullet_text else bullet
+                                    if not current_bullet or not current_bullet.strip():
+                                        st.warning("⚠️ Please enter content first before refining.")
+                                    else:
+                                        refinement_prompt = f"""Improve this resume bullet point. Make it more quantified, impactful, and achievement-focused. Use numbers, percentages, or metrics when possible.
 
 Current Bullet:
-{bullet_text if bullet_text else bullet}
+{current_bullet}
 
 Return ONLY the improved bullet point, no additional text."""
-                            
-                            payload = {
-                                "messages": [
-                                    {"role": "system", "content": "You are a resume writing expert. Improve bullet points to be quantified and achievement-focused."},
-                                    {"role": "user", "content": refinement_prompt}
-                                ],
-                                "max_tokens": 150,
-                                "temperature": 0.7
-                            }
-                            
-                            def make_request():
-                                return requests.post(text_gen.url, headers=text_gen.headers, json=payload, timeout=30)
-                            
-                            response = api_call_with_retry(make_request, max_retries=2)
-                            if response and response.status_code == 200:
-                                result = response.json()
-                                refined_text = result['choices'][0]['message']['content'].strip()
-                                st.session_state[f'exp_bullet_{i}_{j}'] = refined_text
-                                st.rerun()
+                                        
+                                        payload = {
+                                            "messages": [
+                                                {"role": "system", "content": "You are a resume writing expert. Improve bullet points to be quantified and achievement-focused."},
+                                                {"role": "user", "content": refinement_prompt}
+                                            ],
+                                            "max_tokens": 150,
+                                            "temperature": 0.7
+                                        }
+                                        
+                                        def make_request():
+                                            return requests.post(text_gen.url, headers=text_gen.headers, json=payload, timeout=30)
+                                        
+                                        response = api_call_with_retry(make_request, max_retries=2)
+                                        if response and response.status_code == 200:
+                                            result = response.json()
+                                            refined_text = result['choices'][0]['message']['content'].strip()
+                                            st.session_state[f'exp_bullet_{i}_{j}'] = refined_text
+                                            st.rerun()
+                                        elif response:
+                                            st.error(f"⚠️ API Error: {response.status_code}")
+                                        else:
+                                            st.error("⚠️ Failed to connect to AI service.")
+                            except Exception as e:
+                                st.error(f"⚠️ Error: {str(e)}")
                 
                 if bullet_text.strip():
                     edited_bullets.append(bullet_text.strip())
