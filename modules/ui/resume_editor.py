@@ -49,8 +49,14 @@ def render_structured_resume_editor(resume_data):
             edited_data['header']['portfolio'] = st.text_input("Portfolio URL", value=resume_data.get('header', {}).get('portfolio', ''), key='resume_portfolio')
     
     # Summary
-    # Use a separate session state key for refined summary to avoid widget key conflict
-    summary_value = st.session_state.get('_refined_summary', resume_data.get('summary', ''))
+    # Check if there's a pending refined summary to display
+    if '_pending_refined_summary' in st.session_state:
+        # Apply the pending refinement by updating the widget key directly
+        st.session_state['resume_summary'] = st.session_state['_pending_refined_summary']
+        del st.session_state['_pending_refined_summary']
+    
+    # Get the summary value - prefer session state (for edited/refined), then fall back to resume data
+    summary_value = resume_data.get('summary', '')
     
     col_summary1, col_summary2 = st.columns([4, 1])
     with col_summary1:
@@ -96,10 +102,8 @@ Return ONLY the improved summary text, no additional explanation."""
                             if response and response.status_code == 200:
                                 result = response.json()
                                 refined_text = result['choices'][0]['message']['content'].strip()
-                                # Store in separate key to avoid widget conflict, then delete widget key
-                                st.session_state['_refined_summary'] = refined_text
-                                if 'resume_summary' in st.session_state:
-                                    del st.session_state['resume_summary']
+                                # Store in pending key - will be applied on next rerun before widget renders
+                                st.session_state['_pending_refined_summary'] = refined_text
                                 st.rerun()
                             elif response:
                                 st.error(f"⚠️ API Error: {response.status_code}. Please try again.")
@@ -138,16 +142,19 @@ Return ONLY the improved summary text, no additional explanation."""
             bullets = exp.get('bullets', [])
             edited_bullets = []
             for j, bullet in enumerate(bullets):
-                # Use separate session state key for refined bullets to avoid widget key conflict
                 bullet_key = f'exp_bullet_{i}_{j}'
-                refined_bullet_key = f'_refined_bullet_{i}_{j}'
-                bullet_value = st.session_state.get(refined_bullet_key, bullet)
+                pending_bullet_key = f'_pending_refined_bullet_{i}_{j}'
+                
+                # Check for pending refined bullet and apply it BEFORE widget renders
+                if pending_bullet_key in st.session_state:
+                    st.session_state[bullet_key] = st.session_state[pending_bullet_key]
+                    del st.session_state[pending_bullet_key]
                 
                 col_bullet1, col_bullet2 = st.columns([4, 1])
                 with col_bullet1:
                     bullet_text = st.text_area(
                         f"Bullet {j+1}",
-                        value=bullet_value,
+                        value=bullet,
                         height=60,
                         key=bullet_key
                     )
@@ -160,7 +167,7 @@ Return ONLY the improved summary text, no additional explanation."""
                                     st.error("⚠️ Azure OpenAI is not configured.")
                                 else:
                                     # Get the current value from the widget's session state
-                                    current_bullet = st.session_state.get(bullet_key, bullet_value)
+                                    current_bullet = st.session_state.get(bullet_key, bullet)
                                     if not current_bullet or not current_bullet.strip():
                                         st.warning("⚠️ Please enter content first before refining.")
                                     else:
@@ -187,10 +194,8 @@ Return ONLY the improved bullet point, no additional text."""
                                         if response and response.status_code == 200:
                                             result = response.json()
                                             refined_text = result['choices'][0]['message']['content'].strip()
-                                            # Store in separate key to avoid widget conflict, then delete widget key
-                                            st.session_state[refined_bullet_key] = refined_text
-                                            if bullet_key in st.session_state:
-                                                del st.session_state[bullet_key]
+                                            # Store in pending key - will be applied on next rerun before widget renders
+                                            st.session_state[pending_bullet_key] = refined_text
                                             st.rerun()
                                         elif response:
                                             st.error(f"⚠️ API Error: {response.status_code}")
