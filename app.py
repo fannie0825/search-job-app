@@ -3791,11 +3791,14 @@ def render_structured_resume_editor(resume_data):
             edited_data['header']['portfolio'] = st.text_input("Portfolio URL", value=resume_data.get('header', {}).get('portfolio', ''), key='resume_portfolio')
     
     # Summary
+    # Use a separate session state key for refined summary to avoid widget key conflict
+    summary_value = st.session_state.get('_refined_summary', resume_data.get('summary', ''))
+    
     col_summary1, col_summary2 = st.columns([4, 1])
     with col_summary1:
         edited_data['summary'] = st.text_area(
             "Professional Summary",
-            value=resume_data.get('summary', ''),
+            value=summary_value,
             height=100,
             key='resume_summary'
         )
@@ -3806,10 +3809,12 @@ def render_structured_resume_editor(resume_data):
                 if text_gen is None:
                     st.error("⚠️ Azure OpenAI is not configured. Please configure AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT in your Streamlit secrets.")
                     return
+                # Get the current value from the widget's session state
+                current_summary = st.session_state.get('resume_summary', summary_value)
                 refinement_prompt = f"""Improve this professional summary. Make it more impactful, quantified, and tailored. Keep it concise (2-3 sentences).
 
 Current Summary:
-{edited_data.get('summary', resume_data.get('summary', ''))}
+{current_summary}
 
 Return ONLY the improved summary text, no additional explanation."""
                 
@@ -3829,8 +3834,10 @@ Return ONLY the improved summary text, no additional explanation."""
                 if response and response.status_code == 200:
                     result = response.json()
                     refined_text = result['choices'][0]['message']['content'].strip()
-                    # Update the text area value
-                    st.session_state['resume_summary'] = refined_text
+                    # Store in separate key to avoid widget conflict, then delete widget key
+                    st.session_state['_refined_summary'] = refined_text
+                    if 'resume_summary' in st.session_state:
+                        del st.session_state['resume_summary']
                     st.rerun()
     
     # Skills
@@ -3863,13 +3870,18 @@ Return ONLY the improved summary text, no additional explanation."""
             bullets = exp.get('bullets', [])
             edited_bullets = []
             for j, bullet in enumerate(bullets):
+                # Use separate session state key for refined bullets to avoid widget key conflict
+                bullet_key = f'exp_bullet_{i}_{j}'
+                refined_bullet_key = f'_refined_bullet_{i}_{j}'
+                bullet_value = st.session_state.get(refined_bullet_key, bullet)
+                
                 col_bullet1, col_bullet2 = st.columns([4, 1])
                 with col_bullet1:
                     bullet_text = st.text_area(
                         f"Bullet {j+1}",
-                        value=bullet,
+                        value=bullet_value,
                         height=60,
-                        key=f'exp_bullet_{i}_{j}'
+                        key=bullet_key
                     )
                 with col_bullet2:
                     if st.button("✨", key=f'refine_bullet_{i}_{j}', help="Refine this bullet with AI", use_container_width=True):
@@ -3878,10 +3890,12 @@ Return ONLY the improved summary text, no additional explanation."""
                             if text_gen is None:
                                 st.error("⚠️ Azure OpenAI is not configured. Please configure AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT in your Streamlit secrets.")
                                 return
+                            # Get the current value from the widget's session state
+                            current_bullet = st.session_state.get(bullet_key, bullet_value)
                             refinement_prompt = f"""Improve this resume bullet point. Make it more quantified, impactful, and achievement-focused. Use numbers, percentages, or metrics when possible.
 
 Current Bullet:
-{bullet_text if bullet_text else bullet}
+{current_bullet}
 
 Return ONLY the improved bullet point, no additional text."""
                             
@@ -3901,7 +3915,10 @@ Return ONLY the improved bullet point, no additional text."""
                             if response and response.status_code == 200:
                                 result = response.json()
                                 refined_text = result['choices'][0]['message']['content'].strip()
-                                st.session_state[f'exp_bullet_{i}_{j}'] = refined_text
+                                # Store in separate key to avoid widget conflict, then delete widget key
+                                st.session_state[refined_bullet_key] = refined_text
+                                if bullet_key in st.session_state:
+                                    del st.session_state[bullet_key]
                                 st.rerun()
                 
                 if bullet_text.strip():
