@@ -6,24 +6,33 @@ import textwrap
 import streamlit as st
 import streamlit.components.v1 as components
 
-from modules.utils.helpers import get_img_as_base64
+# Lazy load logo - only when needed
+_logo_html = None
+_logo_loaded = False
 
-# Load logo for hero banner
-_logo_base64 = ""
-_logo_html = ""
 
-logo_paths = ["logo.png", "CareerLens_Logo.png"]
-for logo_path in logo_paths:
-    if os.path.exists(logo_path):
-        try:
-            _logo_base64 = get_img_as_base64(logo_path)
-            _logo_html = f'<img src="data:image/png;base64,{_logo_base64}" class="hero-bg-logo">'
-            break
-        except Exception as e:
-            _logo_html = '<div class="hero-bg-logo"></div>'
-            break
-else:
+def _load_logo():
+    """Lazy load logo for hero banner"""
+    global _logo_html, _logo_loaded
+    if _logo_loaded:
+        return _logo_html
+    
+    _logo_loaded = True
+    from modules.utils.helpers import get_img_as_base64
+    
+    logo_paths = ["logo.png", "CareerLens_Logo.png"]
+    for logo_path in logo_paths:
+        if os.path.exists(logo_path):
+            try:
+                logo_base64 = get_img_as_base64(logo_path)
+                _logo_html = f'<img src="data:image/png;base64,{logo_base64}" class="hero-bg-logo">'
+                return _logo_html
+            except Exception:
+                _logo_html = '<div class="hero-bg-logo"></div>'
+                return _logo_html
+    
     _logo_html = '<div class="hero-bg-logo"></div>'
+    return _logo_html
 
 
 def _inject_global_js(js_code: str, script_id: str) -> None:
@@ -331,8 +340,8 @@ def render_styles():
 
 
 def get_logo_html():
-    """Get logo HTML for hero banner"""
-    return _logo_html
+    """Get logo HTML for hero banner (lazy loaded)"""
+    return _load_logo()
 
 
 _STREAMLIT_THEME_AND_RECONNECT_JS = """

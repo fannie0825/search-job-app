@@ -16,9 +16,41 @@ import re
 import hashlib
 import streamlit as st
 import requests
-import tiktoken
-import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
+
+# Lazy imports for heavy modules - only load when needed
+_tiktoken = None
+_tiktoken_encoding = None
+_np = None
+_cosine_similarity = None
+
+
+def _get_tiktoken_encoding():
+    """Lazy load tiktoken encoding"""
+    global _tiktoken, _tiktoken_encoding
+    if _tiktoken_encoding is None:
+        import tiktoken
+        _tiktoken = tiktoken
+        _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
+    return _tiktoken_encoding
+
+
+def _get_numpy():
+    """Lazy load numpy"""
+    global _np
+    if _np is None:
+        import numpy as np
+        _np = np
+    return _np
+
+
+def _get_cosine_similarity():
+    """Lazy load sklearn cosine_similarity"""
+    global _cosine_similarity
+    if _cosine_similarity is None:
+        from sklearn.metrics.pairwise import cosine_similarity
+        _cosine_similarity = cosine_similarity
+    return _cosine_similarity
+
 
 from .config import (
     DEFAULT_EMBEDDING_BATCH_SIZE,
@@ -47,7 +79,14 @@ class APIMEmbeddingGenerator:
         self.api_version = "2024-02-01"
         self.url = f"{self.endpoint}/openai/deployments/{self.deployment}/embeddings?api-version={self.api_version}"
         self.headers = {"api-key": self.api_key, "Content-Type": "application/json"}
-        self.encoding = tiktoken.get_encoding("cl100k_base")
+        self._encoding = None  # Lazy load
+    
+    @property
+    def encoding(self):
+        """Lazy load tiktoken encoding"""
+        if self._encoding is None:
+            self._encoding = _get_tiktoken_encoding()
+        return self._encoding
     
     def get_embedding(self, text):
         """Generate embedding for a single text."""
@@ -168,7 +207,14 @@ class AzureOpenAITextGenerator:
         self.url = f"{self.endpoint}/openai/deployments/{self.deployment}/chat/completions?api-version={self.api_version}"
         self.headers = {"api-key": self.api_key, "Content-Type": "application/json"}
         self.token_tracker = token_tracker
-        self.encoding = tiktoken.get_encoding("cl100k_base")
+        self._encoding = None  # Lazy load
+    
+    @property
+    def encoding(self):
+        """Lazy load tiktoken encoding"""
+        if self._encoding is None:
+            self._encoding = _get_tiktoken_encoding()
+        return self._encoding
     
     def generate_resume(self, user_profile, job_posting, raw_resume_text=None):
         """Generate a tailored resume based on user profile and job posting using Context Sandwich approach.
@@ -317,9 +363,12 @@ IMPORTANT: Return ONLY the JSON object, no markdown code blocks, no additional t
             if not resume_embedding or not job_embedding:
                 return None, None
             
+            np = _get_numpy()
+            cosine_sim = _get_cosine_similarity()
+            
             resume_emb = np.array(resume_embedding).reshape(1, -1)
             job_emb = np.array(job_embedding).reshape(1, -1)
-            similarity = cosine_similarity(resume_emb, job_emb)[0][0]
+            similarity = cosine_sim(resume_emb, job_emb)[0][0]
             match_score = float(similarity)
             
             job_desc_for_keywords = job_description[:8000] if len(job_description) > 8000 else job_description

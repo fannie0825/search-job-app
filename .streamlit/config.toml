@@ -39,7 +39,8 @@ address = "0.0.0.0"
 
 # Browser configuration
 [browser]
-# Disable usage stats collection for privacy and performance
+# Disable ALL usage stats collection for privacy and performance
+# This prevents Streamlit from attempting to load Segment analytics
 gatherUsageStats = false
 
 # UI Configuration

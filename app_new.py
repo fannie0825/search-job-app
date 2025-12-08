@@ -17,8 +17,13 @@ warnings.filterwarnings('ignore')
 
 # Streamlit Cloud optimization - set before importing streamlit
 os.environ['STREAMLIT_LOG_LEVEL'] = 'error'
-os.environ['STREAMLIT_BROWSER_GATHER_USAGE_STATS'] = 'false'
 os.environ['SQLITE_TMPDIR'] = '/tmp'
+
+# Disable ALL Streamlit telemetry/analytics to prevent tracking script loads
+# Note: Browser may still show "Tracking Prevention" console messages - this is
+# the browser blocking residual analytics attempts, not an app error
+os.environ['STREAMLIT_BROWSER_GATHER_USAGE_STATS'] = 'false'
+os.environ['STREAMLIT_GLOBAL_DEVELOPMENT_MODE'] = 'false'
 
 # Increase recursion limit for complex operations (prevents stack overflow)
 sys.setrecursionlimit(3000)
@@ -36,8 +41,8 @@ st.set_page_config(
     }
 )
 
-# Import all modules
-from modules.utils import _cleanup_session_state, validate_secrets, _websocket_keepalive
+# Import all modules - UI imports are lightweight, heavy deps are lazy-loaded
+from modules.utils import _cleanup_session_state, validate_secrets
 from modules.ui.styles import render_styles
 from modules.ui import (
     render_sidebar,
@@ -49,14 +54,11 @@ from modules.ui import (
     display_match_breakdown
 )
 
-# Periodic garbage collection
-gc.collect()
-
-# Send initial keepalive to establish connection
-_websocket_keepalive(force=True)
-
-# Render CSS styles and JavaScript
+# Render CSS styles (lightweight - no heavy imports)
 render_styles()
+
+# Note: gc.collect() and websocket keepalive moved to after user interaction
+# to speed up initial page load
 
 # Initialize session state
 if 'search_history' not in st.session_state:
