@@ -728,7 +728,10 @@ class IndeedScraperAPI:
         """Parse job data from API response."""
         try:
             location_data = job_data.get('location', {})
-            location = location_data.get('formattedAddressShort') or location_data.get('city', 'Hong Kong')
+            # Get city name, defaulting to Hong Kong
+            city = location_data.get('city', 'Hong Kong')
+            # Use city name only (without country code) for cleaner display
+            location = city if city else 'Hong Kong'
             
             job_types = job_data.get('jobType', [])
             job_type = ', '.join(job_types) if job_types else 'Full-time'

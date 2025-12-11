@@ -410,7 +410,6 @@ def display_ranked_matches_table(matched_jobs, user_profile):
             'Match Score': int(match_score * 100),
             'Job Title': job['title'],
             'Company': job['company'],
-            'Location': job['location'],
             'Key Matching Skills': matching_skills[:4] if matching_skills else [],
             'Missing Critical Skill': missing_critical_skill,
             '_index': i
@@ -441,10 +440,6 @@ def display_ranked_matches_table(matched_jobs, user_profile):
             'Company',
             width='medium'
         ),
-        'Location': st.column_config.TextColumn(
-            'Location',
-            width='small'
-        ),
         'Key Matching Skills': st.column_config.ListColumn(
             'Key Matching Skills',
             help='Top skills you have that match this role'
@@ -461,7 +456,7 @@ def display_ranked_matches_table(matched_jobs, user_profile):
         )
     }
     
-    column_order = ['Rank', 'Match Score', 'Job Title', 'Company', 'Location', 'Key Matching Skills', 'Missing Critical Skill']
+    column_order = ['Rank', 'Match Score', 'Job Title', 'Company', 'Key Matching Skills', 'Missing Critical Skill']
     
     df_display = df[column_order].copy()
     
