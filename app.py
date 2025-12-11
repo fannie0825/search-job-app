@@ -2373,6 +2373,133 @@ class IndeedScraperAPI:
             return None
 
 
+def extract_skills_from_text(text, title=""):
+    """Extract skills from job description text using keyword matching.
+    
+    This provides accurate skill extraction from job descriptions rather than
+    relying on the API's 'attributes' field which contains job attributes, not skills.
+    """
+    if not text:
+        return []
+    
+    # Combine title and description for better skill detection
+    full_text = f"{title} {text}".lower()
+    
+    # Comprehensive list of technical and professional skills to look for
+    # Organized by category for maintainability
+    skill_keywords = {
+        # Programming Languages
+        'python', 'java', 'javascript', 'typescript', 'c++', 'c#', 'ruby', 'go', 'golang',
+        'rust', 'swift', 'kotlin', 'php', 'scala', 'r', 'matlab', 'perl', 'shell', 'bash',
+        'powershell', 'sql', 'nosql', 'html', 'css', 'sass', 'less',
+        
+        # Frameworks & Libraries
+        'react', 'angular', 'vue', 'vue.js', 'node.js', 'nodejs', 'express', 'django',
+        'flask', 'spring', 'spring boot', '.net', 'asp.net', 'laravel', 'rails',
+        'ruby on rails', 'fastapi', 'next.js', 'nuxt', 'svelte', 'jquery', 'bootstrap',
+        'tailwind', 'tensorflow', 'pytorch', 'keras', 'scikit-learn', 'pandas', 'numpy',
+        
+        # Cloud & DevOps
+        'aws', 'amazon web services', 'azure', 'gcp', 'google cloud', 'docker', 'kubernetes',
+        'k8s', 'jenkins', 'gitlab', 'github actions', 'terraform', 'ansible', 'puppet',
+        'chef', 'ci/cd', 'devops', 'cloud computing', 'microservices', 'serverless',
+        
+        # Databases
+        'mysql', 'postgresql', 'postgres', 'mongodb', 'redis', 'elasticsearch', 'oracle',
+        'sql server', 'sqlite', 'dynamodb', 'cassandra', 'neo4j', 'firebase',
+        
+        # Data & Analytics
+        'data analysis', 'data analytics', 'data science', 'machine learning', 'ml',
+        'deep learning', 'ai', 'artificial intelligence', 'nlp', 'natural language processing',
+        'computer vision', 'big data', 'hadoop', 'spark', 'tableau', 'power bi',
+        'looker', 'data visualization', 'etl', 'data warehouse', 'data engineering',
+        'statistics', 'predictive modeling', 'a/b testing',
+        
+        # Finance & Business
+        'financial modeling', 'financial analysis', 'valuation', 'risk management',
+        'investment banking', 'corporate finance', 'accounting', 'audit', 'tax',
+        'budgeting', 'forecasting', 'financial reporting', 'gaap', 'ifrs',
+        'bloomberg', 'excel', 'vba', 'sap', 'erp', 'crm', 'salesforce',
+        
+        # Project Management & Methodologies
+        'agile', 'scrum', 'kanban', 'waterfall', 'project management', 'pmp',
+        'jira', 'confluence', 'asana', 'trello', 'monday.com', 'product management',
+        'stakeholder management', 'business analysis', 'requirements gathering',
+        
+        # Design & UX
+        'ui/ux', 'ux design', 'ui design', 'user experience', 'user interface',
+        'figma', 'sketch', 'adobe xd', 'photoshop', 'illustrator', 'indesign',
+        'wireframing', 'prototyping', 'design thinking', 'user research',
+        
+        # Soft Skills & Business Skills
+        'leadership', 'team management', 'communication', 'presentation',
+        'problem solving', 'critical thinking', 'analytical', 'strategic planning',
+        'negotiation', 'client management', 'customer service', 'sales',
+        'marketing', 'digital marketing', 'seo', 'sem', 'content marketing',
+        'social media', 'brand management',
+        
+        # Certifications & Standards
+        'cpa', 'cfa', 'frm', 'acca', 'hkicpa', 'aws certified', 'azure certified',
+        'pmp certified', 'scrum master', 'six sigma', 'itil', 'cissp', 'cism',
+        
+        # Industry-Specific
+        'fintech', 'blockchain', 'cryptocurrency', 'defi', 'web3', 'smart contracts',
+        'solidity', 'esg', 'sustainability', 'compliance', 'regulatory', 'kyc', 'aml',
+        'gdpr', 'cybersecurity', 'information security', 'penetration testing',
+        
+        # Languages
+        'english', 'mandarin', 'cantonese', 'chinese', 'japanese', 'korean',
+        'french', 'german', 'spanish', 'bilingual', 'multilingual'
+    }
+    
+    # Find matching skills
+    found_skills = []
+    found_skills_lower = set()
+    
+    for skill in skill_keywords:
+        # Use word boundary matching to avoid partial matches
+        # e.g., 'r' should match "R programming" but not "programming"
+        if len(skill) <= 2:
+            # For very short skills (R, AI, ML), use stricter matching
+            patterns = [
+                rf'\b{re.escape(skill)}\b',  # Exact word boundary
+                rf'\b{re.escape(skill)}[,\s\.]',  # Followed by punctuation
+                rf'[\s\(]{re.escape(skill)}[\s\)\.]'  # Surrounded by spaces/parens
+            ]
+            matched = any(re.search(p, full_text, re.IGNORECASE) for p in patterns)
+        else:
+            # For longer skills, standard word boundary matching
+            pattern = rf'\b{re.escape(skill)}\b'
+            matched = re.search(pattern, full_text, re.IGNORECASE) is not None
+        
+        if matched and skill.lower() not in found_skills_lower:
+            # Capitalize properly for display
+            display_skill = skill.title() if skill.islower() else skill
+            # Special cases for acronyms and proper names
+            display_mapping = {
+                'aws': 'AWS', 'gcp': 'GCP', 'sql': 'SQL', 'nosql': 'NoSQL',
+                'html': 'HTML', 'css': 'CSS', 'api': 'API', 'rest': 'REST',
+                'ai': 'AI', 'ml': 'ML', 'nlp': 'NLP', 'ui/ux': 'UI/UX',
+                'ci/cd': 'CI/CD', 'k8s': 'Kubernetes', 'nodejs': 'Node.js',
+                'vue.js': 'Vue.js', 'next.js': 'Next.js', 'react': 'React',
+                'angular': 'Angular', 'django': 'Django', 'flask': 'Flask',
+                'python': 'Python', 'java': 'Java', 'javascript': 'JavaScript',
+                'typescript': 'TypeScript', 'golang': 'Go', 'cpa': 'CPA',
+                'cfa': 'CFA', 'pmp': 'PMP', 'esg': 'ESG', 'kyc': 'KYC',
+                'aml': 'AML', 'gdpr': 'GDPR', 'erp': 'ERP', 'crm': 'CRM',
+                'seo': 'SEO', 'sem': 'SEM', 'vba': 'VBA', 'sap': 'SAP'
+            }
+            display_skill = display_mapping.get(skill.lower(), display_skill)
+            found_skills.append(display_skill)
+            found_skills_lower.add(skill.lower())
+    
+    # Sort by relevance (skills found in title get priority)
+    title_lower = title.lower()
+    found_skills.sort(key=lambda s: (s.lower() not in title_lower, s))
+    
+    return found_skills[:15]  # Return top 15 skills
+
+
 class TokenUsageTracker:
     """Tracks token usage and costs for API calls."""
     def __init__(self):
@@ -3301,10 +3428,42 @@ def extract_text_from_resume(uploaded_file):
             if not DOCX_AVAILABLE:
                 st.error("DOCX processing is not available. Please upload a TXT or PDF file instead.")
                 return None
-            # Extract text from DOCX
+            # Extract text from DOCX - including tables, headers, and footers
             uploaded_file.seek(0)  # Reset file pointer
             doc = Document(uploaded_file)
-            text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+            
+            text_parts = []
+            
+            # Extract text from paragraphs in the main body
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    text_parts.append(paragraph.text)
+            
+            # Extract text from tables (very common in resumes for formatting)
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = []
+                    for cell in row.cells:
+                        cell_text = cell.text.strip()
+                        if cell_text:
+                            row_text.append(cell_text)
+                    if row_text:
+                        text_parts.append(" | ".join(row_text))
+            
+            # Extract text from headers (if any)
+            for section in doc.sections:
+                header = section.header
+                if header:
+                    for paragraph in header.paragraphs:
+                        if paragraph.text.strip():
+                            text_parts.append(paragraph.text)
+                footer = section.footer
+                if footer:
+                    for paragraph in footer.paragraphs:
+                        if paragraph.text.strip():
+                            text_parts.append(paragraph.text)
+            
+            text = "\n".join(text_parts)
             return text
         
         elif file_type == 'txt':
