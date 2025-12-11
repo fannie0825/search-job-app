@@ -658,6 +658,16 @@ class IndeedScraperAPI:
         }
         self.rate_limiter = RateLimiter(RAPIDAPI_MAX_REQUESTS_PER_MINUTE)
     
+    def _validate_api_key(self):
+        """Check if API key appears valid (basic format check)."""
+        if not self.api_key:
+            return False, "No RapidAPI key configured"
+        if len(self.api_key) < 20:
+            return False, "RapidAPI key appears too short"
+        if self.api_key in ["your_key", "your-rapidapi-key-here", "your_rapidapi_key"]:
+            return False, "RapidAPI key is still set to placeholder value"
+        return True, None
+    
     def search_jobs(self, query, location="Hong Kong", max_rows=15, job_type="fulltime", country="hk"):
         """Search for jobs using Indeed Scraper API.
         
@@ -665,6 +675,12 @@ class IndeedScraperAPI:
         during the job search API call.
         """
         from .helpers import _websocket_keepalive, api_call_with_retry, _ensure_websocket_alive
+        
+        # Validate API key first
+        key_valid, key_error = self._validate_api_key()
+        if not key_valid:
+            st.error(f"⚠️ **API Key Issue**: {key_error}\n\nPlease check your `RAPIDAPI_KEY` in `.streamlit/secrets.toml`")
+            return []
         
         payload = {
             "scraper": {
@@ -708,21 +724,93 @@ class IndeedScraperAPI:
                         parsed_job = self._parse_job(job_data)
                         if parsed_job:
                             jobs.append(parsed_job)
+                    
+                    # If we got the response but no jobs were found
+                    if not jobs and job_list:
+                        st.warning(f"⚠️ Received {len(job_list)} results but could not parse them. API format may have changed.")
+                    elif not jobs:
+                        # API returned success but no jobs - show helpful message
+                        self._show_no_jobs_help(query, location, country)
+                elif 'returnvalue' in data:
+                    # API returned but with unexpected structure
+                    returnvalue = data.get('returnvalue', {})
+                    if isinstance(returnvalue, dict):
+                        error_msg = returnvalue.get('error') or returnvalue.get('message')
+                        if error_msg:
+                            st.warning(f"⚠️ API message: {error_msg}")
+                    self._show_no_jobs_help(query, location, country)
+                else:
+                    # Unexpected response structure
+                    st.warning("⚠️ Unexpected API response format. The Indeed API may have changed.")
+                    self._show_no_jobs_help(query, location, country)
                 
                 _websocket_keepalive("Job search complete", force=True)
                 return jobs
             else:
                 if response:
                     if response.status_code == 429:
-                        st.error("🚫 Rate limit reached for Indeed API. Please wait a few minutes and try again.")
+                        st.error(
+                            "🚫 **Rate Limit Exceeded**\n\n"
+                            "The RapidAPI free tier has limited requests. Try:\n"
+                            "- Wait 1-2 minutes before searching again\n"
+                            "- Upgrade your RapidAPI subscription for more requests\n"
+                            "- Check your quota at [RapidAPI Dashboard](https://rapidapi.com/developer/billing)"
+                        )
+                    elif response.status_code == 401:
+                        st.error(
+                            "🔑 **Authentication Failed**\n\n"
+                            "Your RapidAPI key is invalid or expired. Please:\n"
+                            "1. Check your key in `.streamlit/secrets.toml`\n"
+                            "2. Verify subscription at [RapidAPI](https://rapidapi.com/)\n"
+                            "3. Ensure you're subscribed to the Indeed Scraper API"
+                        )
+                    elif response.status_code == 403:
+                        st.error(
+                            "🚫 **Access Denied**\n\n"
+                            "Your API key doesn't have access to this API. Please:\n"
+                            "1. Visit [Indeed Scraper API](https://rapidapi.com/mantiks-mantiks-default/api/indeed-scraper-api)\n"
+                            "2. Subscribe to the API (free tier available)\n"
+                            "3. Use the API key from your RapidAPI dashboard"
+                        )
                     else:
-                        error_detail = response.text[:200] if response.text else "No error details"
-                        st.error(f"API Error: {response.status_code} - {error_detail}")
+                        error_detail = response.text[:300] if response.text else "No error details"
+                        st.error(f"❌ API Error ({response.status_code}): {error_detail}")
+                else:
+                    st.error("❌ No response received from API. Please check your internet connection.")
                 return []
                 
-        except Exception as e:
-            st.error(f"Error: {e}")
+        except requests.exceptions.ConnectionError:
+            st.error(
+                "🌐 **Connection Error**\n\n"
+                "Could not connect to the job search API. Please:\n"
+                "- Check your internet connection\n"
+                "- Try again in a few moments"
+            )
             return []
+        except requests.exceptions.Timeout:
+            st.error(
+                "⏱️ **Request Timeout**\n\n"
+                "The job search took too long. Please:\n"
+                "- Try a simpler search query\n"
+                "- Reduce the number of jobs requested\n"
+                "- Try again in a few moments"
+            )
+            return []
+        except Exception as e:
+            st.error(f"❌ Unexpected error during job search: {str(e)}")
+            return []
+    
+    def _show_no_jobs_help(self, query, location, country):
+        """Show helpful suggestions when no jobs are found."""
+        st.info(
+            f"💡 **No jobs found for:** `{query}` in `{location}` ({country.upper()})\n\n"
+            "**Try these suggestions:**\n"
+            "- **Broader keywords**: Use general terms like 'software engineer' instead of specific ones\n"
+            "- **Different location**: Try 'Hong Kong' or leave location empty for wider results\n"
+            "- **Check spelling**: Ensure job titles and skills are spelled correctly\n"
+            "- **Wait and retry**: If you've made several searches, wait 1-2 minutes (rate limits)\n"
+            "- **Expand date range**: The API searches last 7 days by default"
+        )
     
     def _parse_job(self, job_data):
         """Parse job data from API response."""

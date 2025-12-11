@@ -339,7 +339,15 @@ def display_refine_results_section(matched_jobs, user_profile):
                 )
                 
                 if not jobs:
-                    st.error("❌ No jobs found from Indeed.")
+                    # Note: Detailed error messages are shown by IndeedScraperAPI
+                    # This is a fallback message if no specific error was shown
+                    st.error(
+                        "❌ **No jobs found**\n\n"
+                        "See the messages above for details, or try:\n"
+                        "- Waiting 1-2 minutes (rate limit)\n"
+                        "- Using broader search terms\n"
+                        "- Checking your API configuration"
+                    )
                     return
                 
                 total_fetched = len(jobs)

@@ -217,7 +217,17 @@ def render_sidebar():
                 
                 if not jobs:
                     progress_bar.empty()
-                    st.error("❌ No jobs found from Indeed. Please check your API configuration or try different search criteria.")
+                    # Note: Detailed error messages are shown by IndeedScraperAPI
+                    # This is a fallback message if no specific error was shown
+                    if not st.session_state.get('_api_error_shown'):
+                        st.error(
+                            "❌ **No jobs found**\n\n"
+                            "This could be due to:\n"
+                            "- **Rate limit**: RapidAPI free tier has limited requests. Wait 1-2 minutes.\n"
+                            "- **Search terms**: Try broader keywords (e.g., 'engineer' instead of specific tech)\n"
+                            "- **Location**: Try 'Hong Kong' or a different city\n"
+                            "- **API key**: Verify your `RAPIDAPI_KEY` in secrets is valid"
+                        )
                     return
                 
                 total_fetched = len(jobs)
