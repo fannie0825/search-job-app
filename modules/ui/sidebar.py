@@ -88,12 +88,68 @@ def render_sidebar():
         st.markdown("---")
         st.markdown("### 2. Set Search Criteria")
         
+        # Country options with full names (value is ISO code for API)
+        COUNTRY_OPTIONS = {
+            "Hong Kong": "hk",
+            "Singapore": "sg",
+            "United States": "us",
+            "United Kingdom": "uk",
+            "Australia": "au",
+            "Canada": "ca",
+            "Japan": "jp",
+            "China": "cn",
+            "Germany": "de",
+            "France": "fr",
+            "India": "in",
+            "Malaysia": "my",
+            "Taiwan": "tw",
+            "South Korea": "kr",
+            "Netherlands": "nl",
+        }
+        
+        # Job Keywords input
+        job_keywords = st.text_input(
+            "Job Keywords*",
+            value=st.session_state.get('job_keywords', ''),
+            placeholder="e.g., Project Manager, Software Engineer",
+            help="Enter job titles or keywords to search for",
+            key="sidebar_job_keywords"
+        )
+        st.session_state.job_keywords = job_keywords
+        
+        # City/Region and Country in columns
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            city_region = st.text_input(
+                "City/Region",
+                value=st.session_state.get('city_region', 'Hong Kong'),
+                placeholder="Hong Kong",
+                help="City or region for job search",
+                key="sidebar_city_region"
+            )
+            st.session_state.city_region = city_region
+        
+        with col2:
+            # Get the current country name from stored code
+            current_code = st.session_state.get('country_code', 'hk')
+            current_country = next((name for name, code in COUNTRY_OPTIONS.items() if code == current_code), "Hong Kong")
+            
+            selected_country = st.selectbox(
+                "Country",
+                options=list(COUNTRY_OPTIONS.keys()),
+                index=list(COUNTRY_OPTIONS.keys()).index(current_country) if current_country in COUNTRY_OPTIONS else 0,
+                help="Select country for job search",
+                key="sidebar_country"
+            )
+            st.session_state.country_code = COUNTRY_OPTIONS[selected_country]
+        
         target_domains = st.multiselect(
             "Target Domains",
             options=["FinTech", "ESG & Sustainability", "Data Analytics", "Digital Transformation", 
                     "Investment Banking", "Consulting", "Technology", "Healthcare", "Education"],
             default=st.session_state.get('target_domains', []),
-            help="Select industries/domains to search for jobs",
+            help="Select industries/domains to filter jobs",
             key="sidebar_target_domains"
         )
         st.session_state.target_domains = target_domains
@@ -121,10 +177,21 @@ def render_sidebar():
             if not st.session_state.resume_text and not st.session_state.user_profile.get('summary'):
                 st.error("⚠️ Please upload your CV first!")
             else:
+                # Get search parameters from session state
+                job_keywords = st.session_state.get('job_keywords', '').strip()
+                city_region = st.session_state.get('city_region', 'Hong Kong')
+                country_code = st.session_state.get('country_code', 'hk')
                 target_domains = st.session_state.get('target_domains', [])
                 salary_expectation = st.session_state.get('salary_expectation', 0)
                 
-                search_query = " ".join(target_domains) if target_domains else "Hong Kong jobs"
+                # Build search query: use job keywords if provided, otherwise use domains
+                if job_keywords:
+                    search_query = job_keywords
+                elif target_domains:
+                    search_query = " ".join(target_domains)
+                else:
+                    search_query = "jobs"
+                
                 scraper = get_job_scraper()
                 
                 if scraper is None:
@@ -133,16 +200,16 @@ def render_sidebar():
                 
                 progress_bar = st.progress(0, text="🔍 Starting job search...")
                 
-                progress_bar.progress(10, text="📡 Fetching jobs from Indeed...")
+                progress_bar.progress(10, text=f"📡 Fetching jobs from Indeed ({city_region}, {country_code.upper()})...")
                 _websocket_keepalive("Connecting to job API...")
                 
                 jobs = fetch_jobs_with_cache(
                     scraper,
                     search_query,
-                    location="Hong Kong",
+                    location=city_region,
                     max_rows=25,
                     job_type="fulltime",
-                    country="hk",
+                    country=country_code,
                     force_refresh=False
                 )
                 

@@ -87,6 +87,12 @@ if 'show_profile_editor' not in st.session_state:
     st.session_state.show_profile_editor = False
 if 'use_auto_match' not in st.session_state:
     st.session_state.use_auto_match = False
+if 'job_keywords' not in st.session_state:
+    st.session_state.job_keywords = ''
+if 'city_region' not in st.session_state:
+    st.session_state.city_region = 'Hong Kong'
+if 'country_code' not in st.session_state:
+    st.session_state.country_code = 'hk'
 if 'expanded_job_index' not in st.session_state:
     st.session_state.expanded_job_index = None
 if 'industry_filter' not in st.session_state:
