@@ -20,7 +20,39 @@ def extract_text_from_resume(uploaded_file):
         elif file_type == 'docx':
             uploaded_file.seek(0)
             doc = Document(uploaded_file)
-            text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+            
+            text_parts = []
+            
+            # Extract text from paragraphs in the main body
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    text_parts.append(paragraph.text)
+            
+            # Extract text from tables (very common in resumes for formatting)
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = []
+                    for cell in row.cells:
+                        cell_text = cell.text.strip()
+                        if cell_text:
+                            row_text.append(cell_text)
+                    if row_text:
+                        text_parts.append(" | ".join(row_text))
+            
+            # Extract text from headers (if any)
+            for section in doc.sections:
+                header = section.header
+                if header:
+                    for paragraph in header.paragraphs:
+                        if paragraph.text.strip():
+                            text_parts.append(paragraph.text)
+                footer = section.footer
+                if footer:
+                    for paragraph in footer.paragraphs:
+                        if paragraph.text.strip():
+                            text_parts.append(paragraph.text)
+            
+            text = "\n".join(text_parts)
             return text
         
         elif file_type == 'txt':
