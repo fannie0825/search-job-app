@@ -202,8 +202,10 @@ DEFAULT_MAX_JOBS_TO_INDEX = _get_config_int("MAX_JOBS_TO_INDEX", 25, minimum=10)
 # Rate limiting: delay between batches in seconds (gentle spacing between successful batches)
 # Note: api_call_with_retry() handles 429 errors with exponential backoff automatically
 EMBEDDING_BATCH_DELAY = _get_config_float("EMBEDDING_BATCH_DELAY", 0.5, minimum=0.0)  # Reduced from 1s to 0.5s
-# RapidAPI rate limiting: max requests per minute (default: 3 for free tier)
-RAPIDAPI_MAX_REQUESTS_PER_MINUTE = _get_config_int("RAPIDAPI_MAX_REQUESTS_PER_MINUTE", 3, minimum=1)
+# RapidAPI rate limiting: max requests per minute
+# Default: 10 for typical usage. Set higher for Pro subscription.
+# Free tier: ~3-5, Pro tier: ~30-60
+RAPIDAPI_MAX_REQUESTS_PER_MINUTE = _get_config_int("RAPIDAPI_MAX_REQUESTS_PER_MINUTE", 10, minimum=1)
 # Profile extraction: skip Pass 2 (self-correction) by default for faster processing
 # Set to True to enable the self-correction pass (adds 10-30s but improves accuracy)
 ENABLE_PROFILE_PASS2 = os.getenv("ENABLE_PROFILE_PASS2", "false").lower() in ("true", "1", "yes")
@@ -2293,7 +2295,7 @@ class IndeedScraperAPI:
                 "jobType": job_type,
                 "radius": "50",
                 "sort": "relevance",
-                "fromDays": "7",
+                "fromDays": "14",  # Extended from 7 to 14 days for more results
                 "country": country
             }
         }
@@ -2305,6 +2307,9 @@ class IndeedScraperAPI:
             # Send keepalive before potentially long API call
             _websocket_keepalive("Searching jobs...")
             
+            # Debug: Show what we're searching for
+            st.caption(f"🔍 Searching: '{query}' in {location} ({country.upper()})...")
+            
             def make_request():
                 return requests.post(self.url, headers=self.headers, json=payload, timeout=45)
             
@@ -2314,22 +2319,73 @@ class IndeedScraperAPI:
                 data = response.json()
                 jobs = []
                 
+                # Debug: Show response structure if no jobs found
+                # Try multiple possible response structures
+                job_list = None
+                
+                # Structure 1: returnvalue.data (original expected structure)
                 if 'returnvalue' in data and 'data' in data['returnvalue']:
                     job_list = data['returnvalue']['data']
-                    
+                # Structure 2: data directly at root
+                elif 'data' in data and isinstance(data['data'], list):
+                    job_list = data['data']
+                # Structure 3: jobs array at root
+                elif 'jobs' in data and isinstance(data['jobs'], list):
+                    job_list = data['jobs']
+                # Structure 4: results array at root
+                elif 'results' in data and isinstance(data['results'], list):
+                    job_list = data['results']
+                # Structure 5: data is itself a list
+                elif isinstance(data, list):
+                    job_list = data
+                
+                if job_list:
                     for job_data in job_list:
                         parsed_job = self._parse_job(job_data)
                         if parsed_job:
                             jobs.append(parsed_job)
+                    
+                    if jobs:
+                        return jobs
                 
-                return jobs
+                # If we get here, no jobs were found - show debugging info
+                # Show more detailed debug info to help diagnose the issue
+                debug_info = []
+                debug_info.append(f"**Response keys:** {list(data.keys()) if isinstance(data, dict) else 'Response is not a dict'}")
+                
+                if isinstance(data, dict):
+                    # Check nested structures
+                    for key in ['returnvalue', 'data', 'jobs', 'results', 'error', 'message']:
+                        if key in data:
+                            val = data[key]
+                            if isinstance(val, dict):
+                                debug_info.append(f"**{key}:** dict with keys {list(val.keys())}")
+                            elif isinstance(val, list):
+                                debug_info.append(f"**{key}:** list with {len(val)} items")
+                            else:
+                                debug_info.append(f"**{key}:** {str(val)[:200]}")
+                
+                st.warning(
+                    f"⚠️ **API returned successfully but no jobs were parsed.**\n\n"
+                    + "\n".join(debug_info) + "\n\n"
+                    f"**Possible causes:**\n"
+                    f"- No jobs match your search query '{query}' in {location}\n"
+                    f"- The API response format may have changed\n\n"
+                    f"**Try:**\n"
+                    f"- Using broader search terms\n"
+                    f"- Changing the location\n"
+                    f"- Selecting different domains"
+                )
+                return []
             else:
                 if response:
                     if response.status_code == 429:
                         st.error("🚫 Rate limit reached for Indeed API. Please wait a few minutes and try again.")
                     else:
-                        error_detail = response.text[:200] if response.text else "No error details"
+                        error_detail = response.text[:500] if response.text else "No error details"
                         st.error(f"API Error: {response.status_code} - {error_detail}")
+                else:
+                    st.error("❌ No response received from API. Please check your internet connection.")
                 return []
                 
         except Exception as e:
@@ -2348,28 +2404,34 @@ class IndeedScraperAPI:
             job_type = ', '.join(job_types) if job_types else 'Full-time'
             
             benefits = job_data.get('benefits', [])
-            attributes = job_data.get('attributes', [])
             
             # Get full description without truncation
-            full_description = job_data.get('descriptionText', 'No description')
+            full_description = job_data.get('descriptionText', '') or job_data.get('description', 'No description')
             # Store full description, but limit to 50000 chars to prevent memory issues
             description = full_description[:50000] if len(full_description) > 50000 else full_description
             
+            title = job_data.get('title', 'N/A')
+            
+            # Extract actual skills from job description and title
+            # This is more accurate than using 'attributes' which contains job metadata
+            extracted_skills = extract_skills_from_text(description, title)
+            
             return {
-                'title': job_data.get('title', 'N/A'),
-                'company': job_data.get('companyName', 'N/A'),
+                'title': title,
+                'company': job_data.get('companyName', '') or job_data.get('company', 'N/A'),
                 'location': location,
                 'description': description,
-                'salary': 'Not specified',
+                'salary': job_data.get('salary', 'Not specified') or 'Not specified',
                 'job_type': job_type,
-                'url': job_data.get('jobUrl', '#'),
-                'posted_date': job_data.get('age', 'Recently'),
-                'benefits': benefits[:5],
-                'skills': attributes[:10],
-                'company_rating': job_data.get('rating', {}).get('rating', 0),
+                'url': job_data.get('jobUrl', '') or job_data.get('url', '#'),
+                'posted_date': job_data.get('age', '') or job_data.get('posted_date', 'Recently'),
+                'benefits': benefits[:5] if benefits else [],
+                'skills': extracted_skills,  # Use extracted skills instead of attributes
+                'company_rating': job_data.get('rating', {}).get('rating', 0) if isinstance(job_data.get('rating'), dict) else 0,
                 'is_remote': job_data.get('isRemote', False)
             }
-        except:
+        except Exception as e:
+            # Don't silently fail - log the issue
             return None
 
 
@@ -4627,7 +4689,13 @@ def render_sidebar():
                 salary_expectation = st.session_state.get('salary_expectation', 0)
                 
                 # Build search query from user-specified domains
-                search_query = " ".join(target_domains) if target_domains else "Hong Kong jobs"
+                # Use the first domain as primary search, or a generic professional query
+                if target_domains:
+                    # Use first domain for focused search (joining multiple domains can be too broad)
+                    search_query = target_domains[0]
+                else:
+                    # Default to a broad professional search
+                    search_query = "jobs"
                 scraper = get_job_scraper()
                 
                 if scraper is None:
@@ -5022,7 +5090,11 @@ def display_refine_results_section(matched_jobs, user_profile):
             st.session_state.salary_expectation = salary_expectation
             
             # Re-fetch and filter jobs
-            search_query = " ".join(target_domains) if target_domains else "Hong Kong jobs"
+            # Use the first domain for focused search
+            if target_domains:
+                search_query = target_domains[0]
+            else:
+                search_query = "jobs"
             scraper = get_job_scraper()
             
             if scraper is None:
