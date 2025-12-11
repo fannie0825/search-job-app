@@ -679,8 +679,11 @@ class IndeedScraperAPI:
         # Validate API key first
         key_valid, key_error = self._validate_api_key()
         if not key_valid:
-            st.error(f"⚠️ **API Key Issue**: {key_error}\n\nPlease check your `RAPIDAPI_KEY` in `.streamlit/secrets.toml`")
+            st.error(f"⚠️ **API Key Issue**: {key_error}\n\nPlease check your `RAPIDAPI_KEY` in Streamlit Cloud secrets.")
             return []
+        
+        # Show search parameters for debugging
+        st.caption(f"🔍 Searching: `{query}` in `{location}` ({country.upper()})")
         
         payload = {
             "scraper": {
@@ -690,7 +693,7 @@ class IndeedScraperAPI:
                 "jobType": job_type,
                 "radius": "50",
                 "sort": "relevance",
-                "fromDays": "7",
+                "fromDays": "14",  # Extended from 7 to 14 days for more results
                 "country": country
             }
         }
@@ -714,8 +717,10 @@ class IndeedScraperAPI:
                 
                 _websocket_keepalive("Processing job results...")
                 
+                # Debug: Show response structure
                 if 'returnvalue' in data and 'data' in data['returnvalue']:
                     job_list = data['returnvalue']['data']
+                    st.caption(f"📊 API returned {len(job_list)} raw results")
                     
                     for idx, job_data in enumerate(job_list):
                         # Keepalive every 5 jobs during parsing
@@ -734,20 +739,24 @@ class IndeedScraperAPI:
                 elif 'returnvalue' in data:
                     # API returned but with unexpected structure
                     returnvalue = data.get('returnvalue', {})
+                    st.caption(f"📋 API response keys: {list(returnvalue.keys()) if isinstance(returnvalue, dict) else type(returnvalue).__name__}")
                     if isinstance(returnvalue, dict):
                         error_msg = returnvalue.get('error') or returnvalue.get('message')
                         if error_msg:
                             st.warning(f"⚠️ API message: {error_msg}")
                     self._show_no_jobs_help(query, location, country)
                 else:
-                    # Unexpected response structure
-                    st.warning("⚠️ Unexpected API response format. The Indeed API may have changed.")
+                    # Unexpected response structure - show what we got for debugging
+                    st.warning(f"⚠️ Unexpected API response format. Keys received: {list(data.keys())}")
                     self._show_no_jobs_help(query, location, country)
                 
                 _websocket_keepalive("Job search complete", force=True)
                 return jobs
             else:
                 if response:
+                    # Show status code for debugging
+                    st.caption(f"⚠️ API Response Status: {response.status_code}")
+                    
                     if response.status_code == 429:
                         st.error(
                             "🚫 **Rate Limit Exceeded**\n\n"
@@ -760,17 +769,27 @@ class IndeedScraperAPI:
                         st.error(
                             "🔑 **Authentication Failed**\n\n"
                             "Your RapidAPI key is invalid or expired. Please:\n"
-                            "1. Check your key in `.streamlit/secrets.toml`\n"
+                            "1. Check your `RAPIDAPI_KEY` in Streamlit Cloud secrets\n"
                             "2. Verify subscription at [RapidAPI](https://rapidapi.com/)\n"
                             "3. Ensure you're subscribed to the Indeed Scraper API"
                         )
                     elif response.status_code == 403:
                         st.error(
-                            "🚫 **Access Denied**\n\n"
-                            "Your API key doesn't have access to this API. Please:\n"
-                            "1. Visit [Indeed Scraper API](https://rapidapi.com/mantiks-mantiks-default/api/indeed-scraper-api)\n"
-                            "2. Subscribe to the API (free tier available)\n"
-                            "3. Use the API key from your RapidAPI dashboard"
+                            "🚫 **Not Subscribed to Indeed Scraper API**\n\n"
+                            "Your RapidAPI key is valid but NOT subscribed to this specific API.\n\n"
+                            "**To fix this:**\n"
+                            "1. Go to [Indeed Scraper API](https://rapidapi.com/mantiks-mantiks-default/api/indeed-scraper-api)\n"
+                            "2. Click **'Subscribe to Test'** (free tier available)\n"
+                            "3. Try searching again"
+                        )
+                    elif response.status_code == 400:
+                        error_detail = response.text[:300] if response.text else "Invalid request"
+                        st.error(f"❌ Bad Request: The search parameters may be invalid.\n\nDetails: {error_detail}")
+                    elif response.status_code == 500:
+                        st.error(
+                            "🔧 **Indeed API Server Error**\n\n"
+                            "The job search API is experiencing issues. This is not your fault.\n"
+                            "Please try again in a few minutes."
                         )
                     else:
                         error_detail = response.text[:300] if response.text else "No error details"
