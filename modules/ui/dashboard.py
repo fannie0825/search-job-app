@@ -225,19 +225,68 @@ def display_refine_results_section(matched_jobs, user_profile):
     with st.expander("🔧 Refine Results", expanded=False):
         st.markdown("### Adjust Search Criteria")
         
+        # Country options with full names
+        COUNTRY_OPTIONS = {
+            "Hong Kong": "hk",
+            "Singapore": "sg",
+            "United States": "us",
+            "United Kingdom": "uk",
+            "Australia": "au",
+            "Canada": "ca",
+            "Japan": "jp",
+            "China": "cn",
+            "Germany": "de",
+            "France": "fr",
+            "India": "in",
+            "Malaysia": "my",
+            "Taiwan": "tw",
+            "South Korea": "kr",
+            "Netherlands": "nl",
+        }
+        
+        # Job Keywords
+        current_keywords = st.session_state.get('job_keywords', '')
+        job_keywords = st.text_input(
+            "Job Keywords*",
+            value=current_keywords,
+            placeholder="e.g., Project Manager",
+            key="refine_keywords"
+        )
+        
+        # City/Region and Country
         col1, col2 = st.columns(2)
         
         with col1:
+            current_city = st.session_state.get('city_region', 'Hong Kong')
+            city_region = st.text_input(
+                "City/Region",
+                value=current_city,
+                key="refine_city"
+            )
+        
+        with col2:
+            current_code = st.session_state.get('country_code', 'hk')
+            current_country = next((name for name, code in COUNTRY_OPTIONS.items() if code == current_code), "Hong Kong")
+            selected_country = st.selectbox(
+                "Country",
+                options=list(COUNTRY_OPTIONS.keys()),
+                index=list(COUNTRY_OPTIONS.keys()).index(current_country) if current_country in COUNTRY_OPTIONS else 0,
+                key="refine_country"
+            )
+        
+        col3, col4 = st.columns(2)
+        
+        with col3:
             current_domains = st.session_state.get('target_domains', [])
             target_domains = st.multiselect(
-                "Target Domains (HK Focus)",
+                "Target Domains",
                 options=["FinTech", "ESG & Sustainability", "Data Analytics", "Digital Transformation", 
                         "Investment Banking", "Consulting", "Technology", "Healthcare", "Education"],
                 default=current_domains,
                 key="refine_domains"
             )
         
-        with col2:
+        with col4:
             current_salary = st.session_state.get('salary_expectation', 0)
             salary_expectation = st.slider(
                 "Min. Monthly Salary (HKD)",
@@ -257,24 +306,35 @@ def display_refine_results_section(matched_jobs, user_profile):
         )
         
         if st.button("🔄 Apply Filters & Refresh", type="primary", use_container_width=True):
+            # Update session state with new values
+            st.session_state.job_keywords = job_keywords
+            st.session_state.city_region = city_region
+            st.session_state.country_code = COUNTRY_OPTIONS[selected_country]
             st.session_state.target_domains = target_domains
             st.session_state.salary_expectation = salary_expectation
             
-            search_query = " ".join(target_domains) if target_domains else "Hong Kong jobs"
+            # Build search query
+            if job_keywords.strip():
+                search_query = job_keywords.strip()
+            elif target_domains:
+                search_query = " ".join(target_domains)
+            else:
+                search_query = "jobs"
+            
             scraper = get_job_scraper()
             
             if scraper is None:
                 st.error("⚠️ Job scraper not configured.")
                 return
             
-            with st.spinner("🔄 Refreshing results from Indeed..."):
+            with st.spinner(f"🔄 Refreshing results from Indeed ({city_region})..."):
                 jobs = fetch_jobs_with_cache(
                     scraper,
                     search_query,
-                    location="Hong Kong",
+                    location=city_region,
                     max_rows=25,
                     job_type="fulltime",
-                    country="hk",
+                    country=COUNTRY_OPTIONS[selected_country],
                     force_refresh=force_refresh
                 )
                 
