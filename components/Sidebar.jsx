@@ -238,24 +238,31 @@ const Sidebar = ({ isOpen, onClose, isMobile, onFileUploaded, onFetchJobs, onAna
               />
             </div>
 
-            {/* Country Code */}
+            {/* Country */}
             <div>
               <label className="block text-xs text-gray-400 mb-2">
-                Country Code
+                Country
               </label>
               <select
                 value={countryCode}
                 onChange={(e) => setCountryCode(e.target.value)}
                 className="w-full px-4 py-2 bg-navy-light border border-navy rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-accent"
               >
-                <option value="hk">hk</option>
-                <option value="sg">sg</option>
-                <option value="us">us</option>
-                <option value="uk">uk</option>
-                <option value="au">au</option>
-                <option value="ca">ca</option>
-                <option value="jp">jp</option>
-                <option value="cn">cn</option>
+                <option value="hk">Hong Kong</option>
+                <option value="sg">Singapore</option>
+                <option value="us">United States</option>
+                <option value="uk">United Kingdom</option>
+                <option value="au">Australia</option>
+                <option value="ca">Canada</option>
+                <option value="jp">Japan</option>
+                <option value="cn">China</option>
+                <option value="de">Germany</option>
+                <option value="fr">France</option>
+                <option value="in">India</option>
+                <option value="my">Malaysia</option>
+                <option value="tw">Taiwan</option>
+                <option value="kr">South Korea</option>
+                <option value="nl">Netherlands</option>
               </select>
             </div>
 

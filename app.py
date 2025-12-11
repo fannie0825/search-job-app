@@ -2310,7 +2310,7 @@ class IndeedScraperAPI:
             
             response = api_call_with_retry(make_request, max_retries=3, initial_delay=3)
             
-            if response and response.status_code == 201:
+            if response and response.status_code in [200, 201]:
                 data = response.json()
                 jobs = []
                 

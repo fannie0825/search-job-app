@@ -4,6 +4,7 @@
  */
 
 import config from '../config/api.config';
+import indeedApiService from './indeedApi';
 
 const API_BASE_URL = config.apiUrl;
 const USE_MOCK_API = config.useMockApi;
@@ -220,11 +221,43 @@ class ApiService {
    * - NO Embedding Generation: This endpoint only calls Indeed API
    * - Rate Limit Management: Small burst of API calls (just Indeed API)
    * - UX: User waits ~5 seconds for job titles
+   * 
+   * Priority:
+   * 1. Try direct Indeed API if RapidAPI key is configured
+   * 2. Fall back to backend API if available
+   * 3. Use mock API for development
    */
   async fetchJobs(filters) {
+    // First, try to use direct Indeed API if configured
+    if (indeedApiService.isConfigured()) {
+      try {
+        console.log('Using direct Indeed API...');
+        const jobs = await indeedApiService.fetchJobs({
+          keywords: filters.keywords || '',
+          location: filters.location || 'Hong Kong',
+          country: filters.country || 'hk',
+          jobType: filters.jobType || 'fulltime',
+          numJobs: filters.numJobs || 25,
+        });
+        return {
+          jobs,
+          count: jobs.length,
+          fetchedAt: new Date().toISOString(),
+          source: 'indeed',
+        };
+      } catch (error) {
+        console.error('Direct Indeed API failed:', error);
+        // Fall through to try other methods
+      }
+    }
+
+    // Fall back to mock API if enabled
     if (this._useMock()) {
+      console.log('Using mock API...');
       return mockApiService.fetchJobs(filters);
     }
+
+    // Try backend API
     const headers = {
       'Content-Type': 'application/json',
     };

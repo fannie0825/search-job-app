@@ -692,7 +692,7 @@ class IndeedScraperAPI:
             # Keepalive after API response
             _ensure_websocket_alive()
             
-            if response and response.status_code == 201:
+            if response and response.status_code in [200, 201]:
                 data = response.json()
                 jobs = []
                 

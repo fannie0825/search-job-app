@@ -2,14 +2,21 @@ import React from 'react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 
 const COUNTRY_OPTIONS = [
-  { value: 'hk', label: 'hk' },
-  { value: 'sg', label: 'sg' },
-  { value: 'us', label: 'us' },
-  { value: 'uk', label: 'uk' },
-  { value: 'au', label: 'au' },
-  { value: 'ca', label: 'ca' },
-  { value: 'jp', label: 'jp' },
-  { value: 'cn', label: 'cn' },
+  { value: 'hk', label: 'Hong Kong' },
+  { value: 'sg', label: 'Singapore' },
+  { value: 'us', label: 'United States' },
+  { value: 'uk', label: 'United Kingdom' },
+  { value: 'au', label: 'Australia' },
+  { value: 'ca', label: 'Canada' },
+  { value: 'jp', label: 'Japan' },
+  { value: 'cn', label: 'China' },
+  { value: 'de', label: 'Germany' },
+  { value: 'fr', label: 'France' },
+  { value: 'in', label: 'India' },
+  { value: 'my', label: 'Malaysia' },
+  { value: 'tw', label: 'Taiwan' },
+  { value: 'kr', label: 'South Korea' },
+  { value: 'nl', label: 'Netherlands' },
 ];
 
 const JobSearchForm = ({ onSearch, loading = false }) => {
@@ -68,13 +75,13 @@ const JobSearchForm = ({ onSearch, loading = false }) => {
           />
         </div>
 
-        {/* Country Code Field */}
+        {/* Country Field */}
         <div className="flex flex-col">
           <label 
             htmlFor="country-code" 
             className="text-sm font-medium text-gray-600 mb-2"
           >
-            Country Code
+            Country
           </label>
           <div className="relative">
             <select
