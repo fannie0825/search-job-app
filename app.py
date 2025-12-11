@@ -4492,7 +4492,14 @@ def render_sidebar():
                 
                 if not jobs:
                     progress_bar.empty()
-                    st.error("❌ No jobs found from Indeed. Please check your API configuration or try different search criteria.")
+                    # Note: Detailed error messages are shown by IndeedScraperAPI
+                    st.error(
+                        "❌ **No jobs found**\n\n"
+                        "See the messages above for details, or try:\n"
+                        "- Waiting 1-2 minutes (rate limit)\n"
+                        "- Using broader search terms\n"
+                        "- Checking your API configuration"
+                    )
                     return
                 
                 # Show how many jobs were fetched before filtering
@@ -4878,7 +4885,14 @@ def display_refine_results_section(matched_jobs, user_profile):
                 )
                 
                 if not jobs:
-                    st.error("❌ No jobs found from Indeed. Please check your API configuration or try different search criteria.")
+                    # Note: Detailed error messages are shown by IndeedScraperAPI
+                    st.error(
+                        "❌ **No jobs found**\n\n"
+                        "See the messages above for details, or try:\n"
+                        "- Waiting 1-2 minutes (rate limit)\n"
+                        "- Using broader search terms\n"
+                        "- Checking your API configuration"
+                    )
                     return
                 
                 # Show how many jobs were fetched before filtering

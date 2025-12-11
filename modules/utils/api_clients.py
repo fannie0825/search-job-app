@@ -647,7 +647,10 @@ class RateLimiter:
 
 
 class IndeedScraperAPI:
-    """Job scraper using Indeed Scraper API via RapidAPI."""
+    """Job scraper using Indeed Scraper API via RapidAPI.
+    
+    Subscribe at RapidAPI and search for "Indeed Scraper API".
+    """
     def __init__(self, api_key):
         self.api_key = api_key
         self.url = "https://indeed-scraper-api.p.rapidapi.com/api/job"
@@ -658,6 +661,16 @@ class IndeedScraperAPI:
         }
         self.rate_limiter = RateLimiter(RAPIDAPI_MAX_REQUESTS_PER_MINUTE)
     
+    def _validate_api_key(self):
+        """Check if API key appears valid (basic format check)."""
+        if not self.api_key:
+            return False, "No RapidAPI key configured"
+        if len(self.api_key) < 20:
+            return False, "RapidAPI key appears too short"
+        if self.api_key in ["your_key", "your-rapidapi-key-here", "your_rapidapi_key"]:
+            return False, "RapidAPI key is still set to placeholder value"
+        return True, None
+    
     def search_jobs(self, query, location="Hong Kong", max_rows=15, job_type="fulltime", country="hk"):
         """Search for jobs using Indeed Scraper API.
         
@@ -665,6 +678,15 @@ class IndeedScraperAPI:
         during the job search API call.
         """
         from .helpers import _websocket_keepalive, api_call_with_retry, _ensure_websocket_alive
+        
+        # Validate API key first
+        key_valid, key_error = self._validate_api_key()
+        if not key_valid:
+            st.error(f"⚠️ **API Key Issue**: {key_error}\n\nPlease check your `RAPIDAPI_KEY` in Streamlit Cloud secrets.")
+            return []
+        
+        # Show search parameters for debugging
+        st.caption(f"🔍 Searching: `{query}` in `{location}` ({country.upper()})")
         
         payload = {
             "scraper": {
@@ -674,7 +696,7 @@ class IndeedScraperAPI:
                 "jobType": job_type,
                 "radius": "50",
                 "sort": "relevance",
-                "fromDays": "7",
+                "fromDays": "14",  # Extended to 14 days for more results
                 "country": country
             }
         }
@@ -698,8 +720,10 @@ class IndeedScraperAPI:
                 
                 _websocket_keepalive("Processing job results...")
                 
+                # Check for job data in returnvalue.data
                 if 'returnvalue' in data and 'data' in data['returnvalue']:
                     job_list = data['returnvalue']['data']
+                    st.caption(f"📊 API returned {len(job_list)} jobs")
                     
                     for idx, job_data in enumerate(job_list):
                         # Keepalive every 5 jobs during parsing
@@ -708,55 +732,172 @@ class IndeedScraperAPI:
                         parsed_job = self._parse_job(job_data)
                         if parsed_job:
                             jobs.append(parsed_job)
+                    
+                    # If we got the response but no jobs were found
+                    if not jobs and job_list:
+                        st.warning(f"⚠️ Received {len(job_list)} results but could not parse them. API format may have changed.")
+                    elif not jobs:
+                        # API returned success but no jobs - show helpful message
+                        self._show_no_jobs_help(query, location, country)
+                elif 'returnvalue' in data:
+                    # API returned but with unexpected structure
+                    returnvalue = data.get('returnvalue', {})
+                    st.caption(f"📋 API response keys: {list(returnvalue.keys()) if isinstance(returnvalue, dict) else type(returnvalue).__name__}")
+                    if isinstance(returnvalue, dict):
+                        error_msg = returnvalue.get('error') or returnvalue.get('message')
+                        if error_msg:
+                            st.warning(f"⚠️ API message: {error_msg}")
+                    self._show_no_jobs_help(query, location, country)
+                else:
+                    # Unexpected response structure - show what we got for debugging
+                    st.warning(f"⚠️ Unexpected API response format. Keys received: {list(data.keys())}")
+                    self._show_no_jobs_help(query, location, country)
                 
                 _websocket_keepalive("Job search complete", force=True)
                 return jobs
             else:
                 if response:
+                    # Show status code for debugging
+                    st.caption(f"⚠️ API Response Status: {response.status_code}")
+                    
                     if response.status_code == 429:
-                        st.error("🚫 Rate limit reached for Indeed API. Please wait a few minutes and try again.")
+                        st.error(
+                            "🚫 **Rate Limit Exceeded**\n\n"
+                            "The RapidAPI free tier has limited requests. Try:\n"
+                            "- Wait 1-2 minutes before searching again\n"
+                            "- Upgrade your RapidAPI subscription for more requests\n"
+                            "- Check your quota at [RapidAPI Dashboard](https://rapidapi.com/developer/billing)"
+                        )
+                    elif response.status_code == 401:
+                        st.error(
+                            "🔑 **Authentication Failed**\n\n"
+                            "Your RapidAPI key is invalid or expired. Please:\n"
+                            "1. Check your `RAPIDAPI_KEY` in Streamlit Cloud secrets\n"
+                            "2. Verify subscription at [RapidAPI](https://rapidapi.com/)\n"
+                            "3. Ensure you're subscribed to the Indeed Scraper API"
+                        )
+                    elif response.status_code == 403:
+                        st.error(
+                            "🚫 **Not Subscribed to Indeed Scraper API**\n\n"
+                            "Your RapidAPI key is valid but NOT subscribed to this specific API.\n\n"
+                            "**To fix this:**\n"
+                            "1. Go to RapidAPI and search for 'Indeed Scraper API'\n"
+                            "2. Click **'Subscribe to Test'** (free tier available)\n"
+                            "3. Try searching again"
+                        )
+                    elif response.status_code == 400:
+                        error_detail = response.text[:300] if response.text else "Invalid request"
+                        st.error(f"❌ Bad Request: The search parameters may be invalid.\n\nDetails: {error_detail}")
+                    elif response.status_code == 500:
+                        st.error(
+                            "🔧 **Indeed API Server Error**\n\n"
+                            "The job search API is experiencing issues. This is not your fault.\n"
+                            "Please try again in a few minutes."
+                        )
                     else:
-                        error_detail = response.text[:200] if response.text else "No error details"
-                        st.error(f"API Error: {response.status_code} - {error_detail}")
+                        error_detail = response.text[:300] if response.text else "No error details"
+                        st.error(f"❌ API Error ({response.status_code}): {error_detail}")
+                else:
+                    st.error("❌ No response received from API. Please check your internet connection.")
                 return []
                 
+        except requests.exceptions.ConnectionError:
+            st.error(
+                "🌐 **Connection Error**\n\n"
+                "Could not connect to the job search API. Please:\n"
+                "- Check your internet connection\n"
+                "- Try again in a few moments"
+            )
+            return []
+        except requests.exceptions.Timeout:
+            st.error(
+                "⏱️ **Request Timeout**\n\n"
+                "The job search took too long. Please:\n"
+                "- Try a simpler search query\n"
+                "- Reduce the number of jobs requested\n"
+                "- Try again in a few moments"
+            )
+            return []
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"❌ Unexpected error during job search: {str(e)}")
             return []
     
+    def _show_no_jobs_help(self, query, location, country):
+        """Show helpful suggestions when no jobs are found."""
+        st.info(
+            f"💡 **No jobs found for:** `{query}` in `{location}` ({country.upper()})\n\n"
+            "**Try these suggestions:**\n"
+            "- **Broader keywords**: Use general terms like 'software engineer' instead of specific ones\n"
+            "- **Different location**: Try 'San Francisco', 'New York', or other major cities\n"
+            "- **Check spelling**: Ensure job titles and skills are spelled correctly\n"
+            "- **Wait and retry**: If you've made several searches, wait 1-2 minutes (rate limits)\n"
+            "- **Different country**: Try 'us' for United States jobs"
+        )
+    
     def _parse_job(self, job_data):
-        """Parse job data from API response."""
+        """Parse job data from Indeed Scraper API response."""
         try:
+            # Extract location
             location_data = job_data.get('location', {})
-            # Get city name, defaulting to Hong Kong
-            city = location_data.get('city', 'Hong Kong')
-            # Use city name only (without country code) for cleaner display
-            location = city if city else 'Hong Kong'
+            city = location_data.get('city', '')
+            country = location_data.get('country', '')
+            formatted_address = location_data.get('formattedAddressShort', '') or location_data.get('fullAddress', '')
+            location = formatted_address if formatted_address else (city if city else 'Location not specified')
             
+            # Extract job type
             job_types = job_data.get('jobType', [])
             job_type = ', '.join(job_types) if job_types else 'Full-time'
             
-            benefits = job_data.get('benefits', [])
-            attributes = job_data.get('attributes', [])
+            # Extract salary info
+            salary_data = job_data.get('salary', {})
+            if salary_data:
+                salary_text = salary_data.get('salaryText', '')
+                if salary_text:
+                    salary = salary_text
+                else:
+                    salary_min = salary_data.get('salaryMin')
+                    salary_max = salary_data.get('salaryMax')
+                    salary_currency = salary_data.get('salaryCurrency', 'USD')
+                    if salary_min and salary_max:
+                        salary = f"{salary_currency} {salary_min:,.0f} - {salary_max:,.0f}"
+                    elif salary_min:
+                        salary = f"{salary_currency} {salary_min:,.0f}+"
+                    elif salary_max:
+                        salary = f"Up to {salary_currency} {salary_max:,.0f}"
+                    else:
+                        salary = 'Not specified'
+            else:
+                salary = 'Not specified'
             
+            # Extract benefits and skills
+            benefits = job_data.get('benefits', [])
+            attributes = job_data.get('attributes', [])  # These are the skills
+            
+            # Get description
             full_description = job_data.get('descriptionText', 'No description')
             description = full_description[:50000] if len(full_description) > 50000 else full_description
+            
+            # Get rating
+            rating_data = job_data.get('rating', {})
+            company_rating = rating_data.get('rating', 0) if rating_data else 0
             
             return {
                 'title': job_data.get('title', 'N/A'),
                 'company': job_data.get('companyName', 'N/A'),
                 'location': location,
                 'description': description,
-                'salary': 'Not specified',
+                'salary': salary,
                 'job_type': job_type,
                 'url': job_data.get('jobUrl', '#'),
+                'apply_url': job_data.get('applyUrl', ''),
                 'posted_date': job_data.get('age', 'Recently'),
-                'benefits': benefits[:5],
-                'skills': attributes[:10],
-                'company_rating': job_data.get('rating', {}).get('rating', 0),
-                'is_remote': job_data.get('isRemote', False)
+                'benefits': benefits[:5] if benefits else [],
+                'skills': attributes[:10] if attributes else [],
+                'company_rating': company_rating,
+                'is_remote': job_data.get('isRemote', False),
+                'company_logo': job_data.get('companyLogoUrl', ''),
             }
-        except:
+        except Exception as e:
             return None
 
 
