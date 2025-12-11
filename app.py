@@ -2339,7 +2339,10 @@ class IndeedScraperAPI:
     def _parse_job(self, job_data):
         try:
             location_data = job_data.get('location', {})
-            location = location_data.get('formattedAddressShort') or location_data.get('city', 'Hong Kong')
+            # Get city name, defaulting to Hong Kong
+            city = location_data.get('city', 'Hong Kong')
+            # Use city name only (without country code) for cleaner display
+            location = city if city else 'Hong Kong'
             
             job_types = job_data.get('jobType', [])
             job_type = ', '.join(job_types) if job_types else 'Full-time'
@@ -5030,7 +5033,6 @@ def display_ranked_matches_table(matched_jobs, user_profile):
             'Match Score': int(match_score * 100),
             'Job Title': job['title'],
             'Company': job['company'],
-            'Location': job['location'],
             'Key Matching Skills': matching_skills[:4] if matching_skills else [],
             'Missing Critical Skill': missing_critical_skill,
             '_index': i  # Internal index for selection
@@ -5062,10 +5064,6 @@ def display_ranked_matches_table(matched_jobs, user_profile):
             'Company',
             width='medium'
         ),
-        'Location': st.column_config.TextColumn(
-            'Location',
-            width='small'
-        ),
         'Key Matching Skills': st.column_config.ListColumn(
             'Key Matching Skills',
             help='Top skills you have that match this role'
@@ -5084,7 +5082,7 @@ def display_ranked_matches_table(matched_jobs, user_profile):
     
     # Set column order with Rank first (fixed position - won't move when table scrolls)
     # Note: Rank is based on combined match score and remains fixed in position 1
-    column_order = ['Rank', 'Match Score', 'Job Title', 'Company', 'Location', 'Key Matching Skills', 'Missing Critical Skill']
+    column_order = ['Rank', 'Match Score', 'Job Title', 'Company', 'Key Matching Skills', 'Missing Critical Skill']
     
     # Reorder dataframe to ensure Rank is first
     df_display = df[column_order].copy()
