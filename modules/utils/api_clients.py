@@ -646,14 +646,17 @@ class RateLimiter:
         self.request_times.append(time.time())
 
 
-class IndeedScraperAPI:
-    """Job scraper using Indeed Scraper API via RapidAPI."""
+class JSearchAPI:
+    """Job search using JSearch API via RapidAPI.
+    
+    This replaces the deprecated Indeed Scraper API.
+    Subscribe at: https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch
+    """
     def __init__(self, api_key):
         self.api_key = api_key
-        self.url = "https://indeed-scraper-api.p.rapidapi.com/api/job"
+        self.base_url = "https://jsearch.p.rapidapi.com"
         self.headers = {
-            'Content-Type': 'application/json',
-            'x-rapidapi-host': 'indeed-scraper-api.p.rapidapi.com',
+            'x-rapidapi-host': 'jsearch.p.rapidapi.com',
             'x-rapidapi-key': api_key
         }
         self.rate_limiter = RateLimiter(RAPIDAPI_MAX_REQUESTS_PER_MINUTE)
@@ -669,7 +672,7 @@ class IndeedScraperAPI:
         return True, None
     
     def search_jobs(self, query, location="Hong Kong", max_rows=15, job_type="fulltime", country="hk"):
-        """Search for jobs using Indeed Scraper API.
+        """Search for jobs using JSearch API.
         
         Includes WebSocket keepalive calls to prevent connection timeouts
         during the job search API call.
@@ -682,45 +685,68 @@ class IndeedScraperAPI:
             st.error(f"⚠️ **API Key Issue**: {key_error}\n\nPlease check your `RAPIDAPI_KEY` in Streamlit Cloud secrets.")
             return []
         
-        # Show search parameters for debugging
-        st.caption(f"🔍 Searching: `{query}` in `{location}` ({country.upper()})")
+        # Build search query with location
+        search_query = f"{query} in {location}" if location else query
         
-        payload = {
-            "scraper": {
-                "maxRows": max_rows,
-                "query": query,
-                "location": location,
-                "jobType": job_type,
-                "radius": "50",
-                "sort": "relevance",
-                "fromDays": "14",  # Extended from 7 to 14 days for more results
-                "country": country
+        # Show search parameters for debugging
+        st.caption(f"🔍 Searching: `{search_query}`")
+        
+        # Map job type to JSearch format
+        employment_types = None
+        if job_type:
+            job_type_map = {
+                'fulltime': 'FULLTIME',
+                'full-time': 'FULLTIME',
+                'parttime': 'PARTTIME',
+                'part-time': 'PARTTIME',
+                'contract': 'CONTRACTOR',
+                'contractor': 'CONTRACTOR',
+                'intern': 'INTERN',
+                'internship': 'INTERN'
             }
+            employment_types = job_type_map.get(job_type.lower(), 'FULLTIME')
+        
+        # Calculate number of pages needed (JSearch returns 10 per page)
+        num_pages = max(1, (max_rows + 9) // 10)
+        
+        params = {
+            'query': search_query,
+            'page': '1',
+            'num_pages': str(min(num_pages, 3)),  # Limit to 3 pages to conserve API calls
+            'date_posted': 'week',  # Jobs from the past week
         }
+        
+        if employment_types:
+            params['employment_types'] = employment_types
         
         try:
             _websocket_keepalive("Preparing job search...", force=True)
             self.rate_limiter.wait_if_needed()
-            _websocket_keepalive("Searching jobs...")
+            _websocket_keepalive("Searching jobs via JSearch API...")
             
             def make_request():
-                return requests.post(self.url, headers=self.headers, json=payload, timeout=60)
+                return requests.get(
+                    f"{self.base_url}/search",
+                    headers=self.headers,
+                    params=params,
+                    timeout=60
+                )
             
             response = api_call_with_retry(make_request, max_retries=3, initial_delay=3)
             
             # Keepalive after API response
             _ensure_websocket_alive()
             
-            if response and response.status_code in [200, 201]:
+            if response and response.status_code == 200:
                 data = response.json()
                 jobs = []
                 
                 _websocket_keepalive("Processing job results...")
                 
-                # Debug: Show response structure
-                if 'returnvalue' in data and 'data' in data['returnvalue']:
-                    job_list = data['returnvalue']['data']
-                    st.caption(f"📊 API returned {len(job_list)} raw results")
+                # JSearch returns data in 'data' array
+                if 'data' in data and isinstance(data['data'], list):
+                    job_list = data['data']
+                    st.caption(f"📊 API returned {len(job_list)} jobs")
                     
                     for idx, job_data in enumerate(job_list):
                         # Keepalive every 5 jobs during parsing
@@ -729,32 +755,29 @@ class IndeedScraperAPI:
                         parsed_job = self._parse_job(job_data)
                         if parsed_job:
                             jobs.append(parsed_job)
+                        
+                        # Limit to max_rows
+                        if len(jobs) >= max_rows:
+                            break
                     
-                    # If we got the response but no jobs were found
                     if not jobs and job_list:
-                        st.warning(f"⚠️ Received {len(job_list)} results but could not parse them. API format may have changed.")
+                        st.warning(f"⚠️ Received {len(job_list)} results but could not parse them.")
                     elif not jobs:
-                        # API returned success but no jobs - show helpful message
                         self._show_no_jobs_help(query, location, country)
-                elif 'returnvalue' in data:
-                    # API returned but with unexpected structure
-                    returnvalue = data.get('returnvalue', {})
-                    st.caption(f"📋 API response keys: {list(returnvalue.keys()) if isinstance(returnvalue, dict) else type(returnvalue).__name__}")
-                    if isinstance(returnvalue, dict):
-                        error_msg = returnvalue.get('error') or returnvalue.get('message')
-                        if error_msg:
-                            st.warning(f"⚠️ API message: {error_msg}")
+                elif 'status' in data and data.get('status') == 'OK' and not data.get('data'):
+                    # API returned OK but no data
                     self._show_no_jobs_help(query, location, country)
                 else:
-                    # Unexpected response structure - show what we got for debugging
-                    st.warning(f"⚠️ Unexpected API response format. Keys received: {list(data.keys())}")
+                    # Unexpected response structure
+                    st.warning(f"⚠️ Unexpected API response. Keys: {list(data.keys())}")
+                    if 'message' in data:
+                        st.caption(f"API message: {data['message']}")
                     self._show_no_jobs_help(query, location, country)
                 
                 _websocket_keepalive("Job search complete", force=True)
                 return jobs
             else:
                 if response:
-                    # Show status code for debugging
                     st.caption(f"⚠️ API Response Status: {response.status_code}")
                     
                     if response.status_code == 429:
@@ -762,109 +785,160 @@ class IndeedScraperAPI:
                             "🚫 **Rate Limit Exceeded**\n\n"
                             "The RapidAPI free tier has limited requests. Try:\n"
                             "- Wait 1-2 minutes before searching again\n"
-                            "- Upgrade your RapidAPI subscription for more requests\n"
-                            "- Check your quota at [RapidAPI Dashboard](https://rapidapi.com/developer/billing)"
+                            "- Upgrade your RapidAPI subscription\n"
+                            "- Check quota at [RapidAPI Dashboard](https://rapidapi.com/developer/billing)"
                         )
                     elif response.status_code == 401:
                         st.error(
                             "🔑 **Authentication Failed**\n\n"
-                            "Your RapidAPI key is invalid or expired. Please:\n"
+                            "Your RapidAPI key is invalid. Please:\n"
                             "1. Check your `RAPIDAPI_KEY` in Streamlit Cloud secrets\n"
-                            "2. Verify subscription at [RapidAPI](https://rapidapi.com/)\n"
-                            "3. Ensure you're subscribed to the Indeed Scraper API"
+                            "2. Get your key from [RapidAPI Dashboard](https://rapidapi.com/developer/dashboard)"
                         )
                     elif response.status_code == 403:
                         st.error(
-                            "🚫 **Not Subscribed to Indeed Scraper API**\n\n"
-                            "Your RapidAPI key is valid but NOT subscribed to this specific API.\n\n"
+                            "🚫 **Not Subscribed to JSearch API**\n\n"
+                            "You need to subscribe to the JSearch API.\n\n"
                             "**To fix this:**\n"
-                            "1. Go to [Indeed Scraper API](https://rapidapi.com/mantiks-mantiks-default/api/indeed-scraper-api)\n"
-                            "2. Click **'Subscribe to Test'** (free tier available)\n"
+                            "1. Go to [JSearch API](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch)\n"
+                            "2. Click **'Subscribe to Test'** (free tier: 500 requests/month)\n"
                             "3. Try searching again"
                         )
                     elif response.status_code == 400:
                         error_detail = response.text[:300] if response.text else "Invalid request"
-                        st.error(f"❌ Bad Request: The search parameters may be invalid.\n\nDetails: {error_detail}")
+                        st.error(f"❌ Bad Request: {error_detail}")
                     elif response.status_code == 500:
                         st.error(
-                            "🔧 **Indeed API Server Error**\n\n"
-                            "The job search API is experiencing issues. This is not your fault.\n"
+                            "🔧 **API Server Error**\n\n"
+                            "The job search API is experiencing issues.\n"
                             "Please try again in a few minutes."
                         )
                     else:
-                        error_detail = response.text[:300] if response.text else "No error details"
+                        error_detail = response.text[:300] if response.text else "No details"
                         st.error(f"❌ API Error ({response.status_code}): {error_detail}")
                 else:
-                    st.error("❌ No response received from API. Please check your internet connection.")
+                    st.error("❌ No response from API. Check your internet connection.")
                 return []
                 
         except requests.exceptions.ConnectionError:
             st.error(
                 "🌐 **Connection Error**\n\n"
-                "Could not connect to the job search API. Please:\n"
-                "- Check your internet connection\n"
-                "- Try again in a few moments"
+                "Could not connect to the job search API.\n"
+                "Please check your internet connection."
             )
             return []
         except requests.exceptions.Timeout:
             st.error(
                 "⏱️ **Request Timeout**\n\n"
-                "The job search took too long. Please:\n"
-                "- Try a simpler search query\n"
-                "- Reduce the number of jobs requested\n"
-                "- Try again in a few moments"
+                "The job search took too long. Try:\n"
+                "- A simpler search query\n"
+                "- Searching again in a moment"
             )
             return []
         except Exception as e:
-            st.error(f"❌ Unexpected error during job search: {str(e)}")
+            st.error(f"❌ Unexpected error: {str(e)}")
             return []
     
     def _show_no_jobs_help(self, query, location, country):
         """Show helpful suggestions when no jobs are found."""
         st.info(
-            f"💡 **No jobs found for:** `{query}` in `{location}` ({country.upper()})\n\n"
+            f"💡 **No jobs found for:** `{query}` in `{location}`\n\n"
             "**Try these suggestions:**\n"
-            "- **Broader keywords**: Use general terms like 'software engineer' instead of specific ones\n"
-            "- **Different location**: Try 'Hong Kong' or leave location empty for wider results\n"
-            "- **Check spelling**: Ensure job titles and skills are spelled correctly\n"
-            "- **Wait and retry**: If you've made several searches, wait 1-2 minutes (rate limits)\n"
-            "- **Expand date range**: The API searches last 7 days by default"
+            "- **Broader keywords**: Use 'software engineer' instead of specific technologies\n"
+            "- **Different location**: Try major cities like 'New York', 'London', 'Singapore'\n"
+            "- **Simpler query**: Remove special characters or very specific terms\n"
+            "- **Wait and retry**: Rate limits may apply (1-2 min cooldown)"
         )
     
     def _parse_job(self, job_data):
-        """Parse job data from API response."""
+        """Parse job data from JSearch API response."""
         try:
-            location_data = job_data.get('location', {})
-            # Get city name, defaulting to Hong Kong
-            city = location_data.get('city', 'Hong Kong')
-            # Use city name only (without country code) for cleaner display
-            location = city if city else 'Hong Kong'
+            # Extract location
+            city = job_data.get('job_city', '')
+            state = job_data.get('job_state', '')
+            country = job_data.get('job_country', '')
+            location_parts = [p for p in [city, state, country] if p]
+            location = ', '.join(location_parts) if location_parts else 'Location not specified'
             
-            job_types = job_data.get('jobType', [])
-            job_type = ', '.join(job_types) if job_types else 'Full-time'
+            # Extract job type
+            job_type = job_data.get('job_employment_type', 'Full-time')
+            if job_type:
+                job_type = job_type.replace('_', ' ').title()
             
-            benefits = job_data.get('benefits', [])
-            attributes = job_data.get('attributes', [])
+            # Extract salary info
+            salary_min = job_data.get('job_min_salary')
+            salary_max = job_data.get('job_max_salary')
+            salary_currency = job_data.get('job_salary_currency', 'USD')
+            salary_period = job_data.get('job_salary_period', 'YEAR')
             
-            full_description = job_data.get('descriptionText', 'No description')
-            description = full_description[:50000] if len(full_description) > 50000 else full_description
+            if salary_min and salary_max:
+                salary = f"{salary_currency} {salary_min:,.0f} - {salary_max:,.0f} / {salary_period.lower()}"
+            elif salary_min:
+                salary = f"{salary_currency} {salary_min:,.0f}+ / {salary_period.lower()}"
+            elif salary_max:
+                salary = f"Up to {salary_currency} {salary_max:,.0f} / {salary_period.lower()}"
+            else:
+                salary = 'Not specified'
+            
+            # Extract skills/highlights from description or highlights
+            highlights = job_data.get('job_highlights', {})
+            qualifications = highlights.get('Qualifications', []) if isinstance(highlights, dict) else []
+            responsibilities = highlights.get('Responsibilities', []) if isinstance(highlights, dict) else []
+            
+            # Try to extract skills from qualifications
+            skills = []
+            if qualifications:
+                skills = qualifications[:10]
+            
+            # Get description
+            description = job_data.get('job_description', 'No description available')
+            
+            # Get benefits
+            benefits_data = highlights.get('Benefits', []) if isinstance(highlights, dict) else []
+            
+            # Check if remote
+            is_remote = job_data.get('job_is_remote', False)
+            
+            # Get posted date
+            posted_at = job_data.get('job_posted_at_datetime_utc', '')
+            if posted_at:
+                # Convert to relative time
+                try:
+                    from datetime import datetime
+                    posted_date = datetime.fromisoformat(posted_at.replace('Z', '+00:00'))
+                    days_ago = (datetime.now(posted_date.tzinfo) - posted_date).days
+                    if days_ago == 0:
+                        posted_date_str = 'Today'
+                    elif days_ago == 1:
+                        posted_date_str = 'Yesterday'
+                    else:
+                        posted_date_str = f'{days_ago} days ago'
+                except:
+                    posted_date_str = 'Recently'
+            else:
+                posted_date_str = 'Recently'
             
             return {
-                'title': job_data.get('title', 'N/A'),
-                'company': job_data.get('companyName', 'N/A'),
+                'title': job_data.get('job_title', 'N/A'),
+                'company': job_data.get('employer_name', 'N/A'),
                 'location': location,
-                'description': description,
-                'salary': 'Not specified',
+                'description': description[:50000] if len(description) > 50000 else description,
+                'salary': salary,
                 'job_type': job_type,
-                'url': job_data.get('jobUrl', '#'),
-                'posted_date': job_data.get('age', 'Recently'),
-                'benefits': benefits[:5],
-                'skills': attributes[:10],
-                'company_rating': job_data.get('rating', {}).get('rating', 0),
-                'is_remote': job_data.get('isRemote', False)
+                'url': job_data.get('job_apply_link') or job_data.get('job_google_link', '#'),
+                'posted_date': posted_date_str,
+                'benefits': benefits_data[:5] if benefits_data else [],
+                'skills': skills,
+                'company_rating': job_data.get('employer_rating', 0) or 0,
+                'is_remote': is_remote,
+                'company_logo': job_data.get('employer_logo', ''),
             }
-        except:
+        except Exception as e:
             return None
+
+
+# Alias for backward compatibility
+IndeedScraperAPI = JSearchAPI
 
 
 class TokenUsageTracker:
