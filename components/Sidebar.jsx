@@ -14,6 +14,7 @@ const Sidebar = ({ isOpen, onClose, isMobile, onFileUploaded, onFetchJobs, onAna
   // Job fetch inputs
   const [jobKeywords, setJobKeywords] = useLocalStorage('careerlens_job_keywords', '');
   const [jobLocation, setJobLocation] = useLocalStorage('careerlens_job_location', 'Hong Kong');
+  const [countryCode, setCountryCode] = useLocalStorage('careerlens_country_code', 'hk');
   const [jobType, setJobType] = useLocalStorage('careerlens_job_type', 'fulltime');
   const [numJobs, setNumJobs] = useLocalStorage('careerlens_num_jobs', 25);
 
@@ -209,24 +210,24 @@ const Sidebar = ({ isOpen, onClose, isMobile, onFileUploaded, onFetchJobs, onAna
               Job Search Parameters
             </h3>
             
-            {/* Keywords */}
+            {/* Job Keywords */}
             <div>
               <label className="block text-xs text-gray-400 mb-2">
-                Keywords
+                Job Keywords<span className="text-red-400">*</span>
               </label>
               <input
                 type="text"
                 value={jobKeywords}
                 onChange={(e) => setJobKeywords(e.target.value)}
-                placeholder="e.g., Software Engineer, Product Manager"
+                placeholder="e.g., Project Manager"
                 className="w-full px-4 py-2 bg-navy-light border border-navy rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-accent"
               />
             </div>
 
-            {/* Location */}
+            {/* City/Region */}
             <div>
               <label className="block text-xs text-gray-400 mb-2">
-                Location
+                City/Region
               </label>
               <input
                 type="text"
@@ -235,6 +236,27 @@ const Sidebar = ({ isOpen, onClose, isMobile, onFileUploaded, onFetchJobs, onAna
                 placeholder="Hong Kong"
                 className="w-full px-4 py-2 bg-navy-light border border-navy rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-accent"
               />
+            </div>
+
+            {/* Country Code */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-2">
+                Country Code
+              </label>
+              <select
+                value={countryCode}
+                onChange={(e) => setCountryCode(e.target.value)}
+                className="w-full px-4 py-2 bg-navy-light border border-navy rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-accent"
+              >
+                <option value="hk">hk</option>
+                <option value="sg">sg</option>
+                <option value="us">us</option>
+                <option value="uk">uk</option>
+                <option value="au">au</option>
+                <option value="ca">ca</option>
+                <option value="jp">jp</option>
+                <option value="cn">cn</option>
+              </select>
             </div>
 
             {/* Job Type */}
@@ -284,6 +306,7 @@ const Sidebar = ({ isOpen, onClose, isMobile, onFileUploaded, onFetchJobs, onAna
             onFetchJobs?.({
               keywords: jobKeywords,
               location: jobLocation,
+              country: countryCode,
               jobType: jobType,
               numJobs: numJobs,
               industries: targetIndustries,

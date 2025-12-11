@@ -238,6 +238,7 @@ class ApiService {
       body: JSON.stringify({
         keywords: filters.keywords || '',
         location: filters.location || 'Hong Kong',
+        country: filters.country || 'hk',
         jobType: filters.jobType || 'fulltime',
         numJobs: filters.numJobs || 25,
         industries: filters.industries || [],

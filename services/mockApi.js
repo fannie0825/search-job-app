@@ -105,6 +105,14 @@ const mockApiService = {
 
   async fetchJobs(filters) {
     await delay(2000);
+    // Log filters for debugging
+    console.log('Mock API fetchJobs called with filters:', {
+      keywords: filters.keywords,
+      location: filters.location,
+      country: filters.country || 'hk',
+      jobType: filters.jobType,
+      numJobs: filters.numJobs,
+    });
     // Return raw job listings without ranking or embeddings
     const mockJobs = [
       {
